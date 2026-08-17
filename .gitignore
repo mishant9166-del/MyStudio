@@ -1,0 +1,58 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Electron
+dist/
+dist-electron/
+release/
+
+# Build & CMake
+build/
+out/
+bin/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+.ninja_deps
+.ninja_log
+
+# Visual Studio & C++
+.vs/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.dll
+*.exp
+*.suo
+*.user
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+
+# Temporary / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

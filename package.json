@@ -1,0 +1,23 @@
+{
+  "name": "video-studio-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Professional Windows desktop application for video capturing and streaming",
+  "workspaces": [
+    "desktop",
+    "backend",
+    "admin",
+    "website",
+    "shared"
+  ],
+  "scripts": {
+    "dev:desktop": "npm run dev --workspace=desktop",
+    "dev:backend": "npm run dev --workspace=backend",
+    "build:desktop": "npm run build --workspace=desktop",
+    "build:engine": "cd engine && mkdir -p build && cd build && cmake .. && cmake --build ."
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "typescript": "^5.5.4"
+  }
+}
