@@ -9,6 +9,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 const pdfCache = new Map<string, pdfjsLib.PDFDocumentProxy>();
 const pageCache = new Map<string, HTMLCanvasElement>();
 
+export const hasPdfCached = (sourceId: string): boolean => {
+  return pdfCache.has(sourceId);
+};
+
 export const getPdfPageAsCanvas = async (sourceId: string, base64Data: string, pageNumber: number): Promise<{ canvas: HTMLCanvasElement, totalPages: number } | null> => {
   try {
     let pdfDoc = pdfCache.get(sourceId);

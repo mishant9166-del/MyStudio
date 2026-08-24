@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScenes } from '../../context/SceneContext';
 
-import { getPdfPageAsCanvas } from '../../services/pdfService';
+import { getPdfPageAsCanvas, hasPdfCached } from '../../services/pdfService';
 
 interface Props {
   selectedSourceId: string | null;
@@ -25,6 +25,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
   const [interactionMode, setInteractionMode] = useState<string | null>(null);
   const [cursorStyle, setCursorStyle] = useState('default');
   const [isPdfHovered, setIsPdfHovered] = useState(false);
+  const [playingSources, setPlayingSources] = useState<Set<string>>(new Set());
   const [canvasLayout, setCanvasLayout] = useState({ scale: 1, offsetX: 0, offsetY: 0 });
   const dragStart = useRef({ x: 0, y: 0, sourceX: 0, sourceY: 0, sourceWidth: 0, sourceHeight: 0 });
 
@@ -58,6 +59,30 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
       canvas.removeEventListener('wheel', handleNativeWheel);
     };
   }, []);
+
+  // Auto-advance playing sources
+  useEffect(() => {
+    if (playingSources.size === 0 || !activeScene) return;
+    
+    const interval = setInterval(() => {
+      playingSources.forEach(sourceId => {
+        const source = activeScene.sources.find(s => s.id === sourceId);
+        if (!source) return;
+        
+        if (source.type === 'pdf') {
+          if (source.currentPage && source.totalPages && source.currentPage < source.totalPages) {
+            dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId, updates: { currentPage: source.currentPage + 1, scrollOffset: 0 } } });
+          } else if (source.currentPage === source.totalPages) {
+            setPlayingSources(prev => { const n = new Set(prev); n.delete(sourceId); return n; });
+          }
+        } else if (source.type === 'powerpoint') {
+          window.electronAPI.nextPowerPointSlide(sourceId);
+        }
+      });
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [playingSources, activeScene, dispatch]);
 
   // 1. Manage Capture Streams based on active scene
   useEffect(() => {
@@ -115,6 +140,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
               navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: {
+                  cursor: 'never',
                   mandatory: {
                     chromeMediaSource: 'desktop',
                     chromeMediaSourceId: windowId,
@@ -150,9 +176,10 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
         const pagesToLoad: number[] = [];
         const startPage = source.currentPage || 1;
         
-        for (let i = 0; i < visiblePagesCount; i++) {
-          if (startPage + i <= (source.totalPages || 1)) {
-            pagesToLoad.push(startPage + i);
+        for (let i = -1; i <= visiblePagesCount; i++) {
+          const p = startPage + i;
+          if (p >= 1 && p <= (source.totalPages || 1)) {
+            pagesToLoad.push(p);
           }
         }
         
@@ -160,22 +187,28 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
           const cacheKey = `${source.id}_${pageNum}`;
           if (!frameCache.current[cacheKey] && source.file) {
             frameCache.current[cacheKey] = document.createElement('canvas'); // Set temporary flag
-            window.electronAPI.readDocumentFile(source.file).then(base64Data => {
-              if (base64Data) {
-                getPdfPageAsCanvas(source.id, base64Data, pageNum).then(result => {
-                  if (result) {
-                    frameCache.current[cacheKey] = result.canvas;
-                    if (source.totalPages !== result.totalPages) {
-                      dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: source.id, updates: { totalPages: result.totalPages } } });
-                    }
-                  } else {
-                    delete frameCache.current[cacheKey];
+            
+            const loadPage = (base64Data: string) => {
+              getPdfPageAsCanvas(source.id, base64Data, pageNum).then(result => {
+                if (result) {
+                  frameCache.current[cacheKey] = result.canvas;
+                  if (source.totalPages !== result.totalPages) {
+                    dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: source.id, updates: { totalPages: result.totalPages } } });
                   }
-                });
-              } else {
-                 delete frameCache.current[cacheKey];
-              }
-            });
+                } else {
+                  delete frameCache.current[cacheKey];
+                }
+              });
+            };
+
+            if (hasPdfCached(source.id)) {
+              loadPage(""); // Empty string is ignored by getPdfPageAsCanvas if already cached
+            } else {
+              window.electronAPI.readDocumentFile(source.file).then(base64Data => {
+                if (base64Data) loadPage(base64Data);
+                else delete frameCache.current[cacheKey];
+              });
+            }
           }
         });
       }
@@ -567,10 +600,10 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
 
           if (hoveredHandle) {
             newCursor = hoveredHandle.mode;
-            if (selectedSource.type === 'pdf') hoveringPdf = true;
+            if (selectedSource.type === 'pdf' || selectedSource.type === 'powerpoint') hoveringPdf = true;
           } else if (x >= sx && x <= sx + sw && y >= sy && y <= sy + sh) {
-            newCursor = selectedSource.type === 'pdf' ? 'default' : 'move';
-            if (selectedSource.type === 'pdf') hoveringPdf = true;
+            newCursor = (selectedSource.type === 'pdf' || selectedSource.type === 'powerpoint') ? 'default' : 'move';
+            if (selectedSource.type === 'pdf' || selectedSource.type === 'powerpoint') hoveringPdf = true;
           }
         }
       }
@@ -813,6 +846,15 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
 
   const selectedSource = activeScene?.sources.find(s => s.id === selectedSourceId);
 
+  const togglePlay = (id: string) => {
+    setPlayingSources(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
+
   return (
     <div 
       className="flex-1 min-w-0 min-h-0 bg-transparent relative overflow-hidden flex items-center justify-center"
@@ -851,24 +893,86 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
             <button 
               disabled={!selectedSource.currentPage || selectedSource.currentPage <= 1}
               onClick={() => dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene!.id, sourceId: selectedSource.id, updates: { currentPage: (selectedSource.currentPage || 1) - 1, scrollOffset: 0 } } })}
-              className="flex items-center justify-center w-8 h-7 bg-[#212429]/95 text-slate-300 rounded hover:bg-[#343a41] disabled:opacity-40 disabled:hover:bg-[#212429]/95 shadow-sm transition-colors border border-white/5"
+              className="flex items-center justify-center w-8 h-8 bg-[#424953] text-[#d1d5db] rounded-md hover:bg-[#4a5159] disabled:opacity-40 transition-colors"
+              title="Previous Page"
             >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M3 2v12h2.5V2H3zm8.5 12L6 8l5.5-6v12z"/></svg>
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2v12h2.5V2H4zm8 12L6.5 8 12 2v12z"/></svg>
             </button>
             
-            <div className="flex items-center justify-center px-3 h-7 bg-[#212429]/95 rounded shadow-sm text-[11px] font-bold tracking-wide border border-white/5">
-              <span className="text-white">{selectedSource.currentPage || 1}</span>
-              <span className="text-slate-400 mx-1.5 font-normal">/</span>
-              <span className="text-white">{selectedSource.totalPages || 1}</span>
-            </div>
+            <button 
+              onClick={() => togglePlay(selectedSource.id)}
+              className="flex items-center justify-center w-8 h-8 bg-[#424953] text-[#d1d5db] rounded-md hover:bg-[#4a5159] transition-colors"
+              title={playingSources.has(selectedSource.id) ? "Pause Slideshow" : "Play Slideshow"}
+            >
+              {playingSources.has(selectedSource.id) ? (
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2h2.5v12H4V2zm5.5 0H12v12H9.5V2z"/></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2l9 6-9 6V2z"/></svg>
+              )}
+            </button>
             
             <button 
               disabled={!selectedSource.totalPages || (selectedSource.currentPage || 1) >= selectedSource.totalPages}
               onClick={() => dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene!.id, sourceId: selectedSource.id, updates: { currentPage: (selectedSource.currentPage || 1) + 1, scrollOffset: 0 } } })}
-              className="flex items-center justify-center w-8 h-7 bg-[#212429]/95 text-slate-300 rounded hover:bg-[#343a41] disabled:opacity-40 disabled:hover:bg-[#212429]/95 shadow-sm transition-colors border border-white/5"
+              className="flex items-center justify-center w-8 h-8 bg-[#424953] text-[#d1d5db] rounded-md hover:bg-[#4a5159] disabled:opacity-40 transition-colors"
+              title="Next Page"
             >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 2v12H13V2h-2.5zM4.5 2L10 8l-5.5 6V2z"/></svg>
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M12 2v12H9.5V2H12zM4 2l5.5 6L4 14V2z"/></svg>
             </button>
+
+            <div className="flex items-center justify-center px-3 h-8 bg-[#424953] rounded-md text-[13px] font-semibold tracking-wide border-none shadow-sm">
+              <span className="text-[#60bbf0]">{selectedSource.currentPage || 1}</span>
+              <span className="text-white">/{selectedSource.totalPages || 1}</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* PowerPoint Floating Overlay */}
+      {selectedSource && selectedSource.type === 'powerpoint' && isPdfHovered && (() => {
+        const { scale, offsetX, offsetY } = canvasLayout;
+        const cx = selectedSource.transform.x + selectedSource.transform.width / 2;
+        const cy = selectedSource.transform.y + selectedSource.transform.height;
+        const physicalX = cx * scale + offsetX;
+        const physicalY = cy * scale + offsetY;
+        
+        return (
+          <div 
+            className="absolute flex items-center space-x-1.5 select-none z-10 -translate-x-1/2 -translate-y-[calc(100%+16px)]"
+            style={{ left: physicalX, top: physicalY }}
+            onMouseEnter={() => setIsPdfHovered(true)}
+          >
+            <button 
+              onClick={() => window.electronAPI.prevPowerPointSlide(selectedSource.id)}
+              className="flex items-center justify-center w-8 h-8 bg-[#424953] text-[#d1d5db] rounded-md hover:bg-[#4a5159] transition-colors"
+              title="Previous Slide"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2v12h2.5V2H4zm8 12L6.5 8 12 2v12z"/></svg>
+            </button>
+            
+            <button 
+              onClick={() => togglePlay(selectedSource.id)}
+              className="flex items-center justify-center w-8 h-8 bg-[#424953] text-[#d1d5db] rounded-md hover:bg-[#4a5159] transition-colors"
+              title={playingSources.has(selectedSource.id) ? "Pause Slideshow" : "Play Slideshow"}
+            >
+              {playingSources.has(selectedSource.id) ? (
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2h2.5v12H4V2zm5.5 0H12v12H9.5V2z"/></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 16 16"><path d="M4 2l9 6-9 6V2z"/></svg>
+              )}
+            </button>
+            
+            <button 
+              onClick={() => window.electronAPI.nextPowerPointSlide(selectedSource.id)}
+              className="flex items-center justify-center w-8 h-8 bg-[#424953] text-[#d1d5db] rounded-md hover:bg-[#4a5159] transition-colors"
+              title="Next Slide"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M12 2v12H9.5V2H12zM4 2l5.5 6L4 14V2z"/></svg>
+            </button>
+            
+            <div className="flex items-center justify-center px-3 h-8 bg-[#424953] rounded-md text-[13px] font-semibold tracking-wide border-none shadow-sm text-white">
+              PowerPoint
+            </div>
           </div>
         );
       })()}

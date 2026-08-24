@@ -184,6 +184,10 @@ ipcMain.handle('powerpoint:start', async (event, sourceId: string, filePath: str
       $presentation = $ppt.Presentations.Open('${filePath.replace(/'/g, "''")}')
       $presentation.SlideShowSettings.ShowType = 2
       $slideshow = $presentation.SlideShowSettings.Run()
+      Start-Sleep -Milliseconds 500
+      try {
+        $ppt.ActivePresentation.SlideShowWindow.View.PointerType = 3
+      } catch {}
     `;
     const command = `powershell -Command "${psScript.replace(/\n/g, ';')}"`;
     exec(command, (error, stdout, stderr) => {

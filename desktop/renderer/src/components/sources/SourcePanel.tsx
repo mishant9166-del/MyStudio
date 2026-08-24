@@ -125,7 +125,7 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
             zIndex: 10, 
             opacity: 1, 
             transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, 
-            crop: { left: 0, right: 0, top: 0, bottom: 0 } 
+            crop: { left: 2, right: -2, top: 73, bottom: 43 } 
           } 
         } 
       });
