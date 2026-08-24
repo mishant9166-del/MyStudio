@@ -64,7 +64,7 @@ const StaticThumbnail = ({ scene }: { scene: Scene }) => {
         if (source.type === 'pdf' && source.file) {
           const base64Data = await window.electronAPI.readDocumentFile(source.file);
           if (base64Data) {
-            const result = await getPdfPageAsCanvas(base64Data, source.currentPage || 1);
+            const result = await getPdfPageAsCanvas(source.id, base64Data, source.currentPage || 1);
             if (result && result.canvas) drawable = result.canvas;
           }
         } else if (source.type === 'image' && source.filePath) {

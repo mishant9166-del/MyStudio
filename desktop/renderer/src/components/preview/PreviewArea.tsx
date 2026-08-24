@@ -15,7 +15,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   // Cache for the latest hardware frames and loaded static images
-  const frameCache = useRef<Record<string, ImageBitmap | HTMLImageElement | HTMLCanvasElement>>({});
+  const frameCache = useRef<Record<string, ImageBitmap | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement>>({});
   
   // Track currently active IPC streams to avoid duplicate starts/stops
   const activeStreams = useRef<Set<string>>(new Set());
@@ -24,7 +24,40 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
   // Interaction State
   const [interactionMode, setInteractionMode] = useState<string | null>(null);
   const [cursorStyle, setCursorStyle] = useState('default');
+  const [isPdfHovered, setIsPdfHovered] = useState(false);
+  const [canvasLayout, setCanvasLayout] = useState({ scale: 1, offsetX: 0, offsetY: 0 });
   const dragStart = useRef({ x: 0, y: 0, sourceX: 0, sourceY: 0, sourceWidth: 0, sourceHeight: 0 });
+
+  // Track canvas layout for overlay positioning
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const observer = new ResizeObserver(() => {
+      const rect = canvas.getBoundingClientRect();
+      const physicalWidth = rect.width;
+      const physicalHeight = rect.height;
+      const scaleX = physicalWidth / 1920;
+      const scaleY = physicalHeight / 1080;
+      const scale = Math.min(scaleX, scaleY);
+      const offsetX = (physicalWidth - 1920 * scale) / 2;
+      const offsetY = (physicalHeight - 1080 * scale) / 2;
+      setCanvasLayout({ scale, offsetX, offsetY });
+    });
+    observer.observe(canvas);
+    
+    // Prevent default browser zoom on pinch
+    const handleNativeWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+      }
+    };
+    canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
+    
+    return () => {
+      observer.disconnect();
+      canvas.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, []);
 
   // 1. Manage Capture Streams based on active scene
   useEffect(() => {
@@ -73,6 +106,32 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
             frameCache.current[source.id] = bmp;
           });
         }
+      } else if (source.type === 'powerpoint') {
+        neededStreams.add(source.id);
+        if (!activeStreams.current.has(source.id)) {
+          activeStreams.current.add(source.id);
+          window.electronAPI.startPowerPoint(source.id, source.file!).then((windowId: string | null) => {
+            if (windowId) {
+              navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                  mandatory: {
+                    chromeMediaSource: 'desktop',
+                    chromeMediaSourceId: windowId,
+                    minWidth: 1280, maxWidth: 1920,
+                    minHeight: 720, maxHeight: 1080
+                  }
+                } as any
+              }).then(stream => {
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.muted = true;
+                video.play();
+                frameCache.current[source.id] = video;
+              }).catch(console.error);
+            }
+          });
+        }
       } else if (source.type === 'image') {
         neededStreams.add(source.id);
         if (!frameCache.current[source.id]) {
@@ -86,28 +145,39 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
         }
       } else if (source.type === 'pdf') {
         neededStreams.add(source.id);
-        const cacheKey = `${source.id}_${source.currentPage || 1}`;
-        if (!frameCache.current[cacheKey] && source.file) {
-          // Set a temporary flag to prevent multiple reads
-          frameCache.current[cacheKey] = document.createElement('canvas');
-          
-          window.electronAPI.readDocumentFile(source.file).then(base64Data => {
-            if (base64Data) {
-              getPdfPageAsCanvas(base64Data, source.currentPage || 1).then(result => {
-                if (result) {
-                  frameCache.current[cacheKey] = result.canvas;
-                  if (source.totalPages !== result.totalPages) {
-                    dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: source.id, updates: { totalPages: result.totalPages } } });
-                  }
-                } else {
-                  delete frameCache.current[cacheKey];
-                }
-              });
-            } else {
-               delete frameCache.current[cacheKey];
-            }
-          });
+        const zoom = source.zoom || 1;
+        const visiblePagesCount = Math.max(2, Math.ceil(1 / zoom) + 1);
+        const pagesToLoad: number[] = [];
+        const startPage = source.currentPage || 1;
+        
+        for (let i = 0; i < visiblePagesCount; i++) {
+          if (startPage + i <= (source.totalPages || 1)) {
+            pagesToLoad.push(startPage + i);
+          }
         }
+        
+        pagesToLoad.forEach(pageNum => {
+          const cacheKey = `${source.id}_${pageNum}`;
+          if (!frameCache.current[cacheKey] && source.file) {
+            frameCache.current[cacheKey] = document.createElement('canvas'); // Set temporary flag
+            window.electronAPI.readDocumentFile(source.file).then(base64Data => {
+              if (base64Data) {
+                getPdfPageAsCanvas(source.id, base64Data, pageNum).then(result => {
+                  if (result) {
+                    frameCache.current[cacheKey] = result.canvas;
+                    if (source.totalPages !== result.totalPages) {
+                      dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: source.id, updates: { totalPages: result.totalPages } } });
+                    }
+                  } else {
+                    delete frameCache.current[cacheKey];
+                  }
+                });
+              } else {
+                 delete frameCache.current[cacheKey];
+              }
+            });
+          }
+        });
       }
     });
 
@@ -156,14 +226,24 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
 
       ctx.save();
 
-      // Draw the dynamic recording background
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, physicalWidth, physicalHeight);
+      // --- Coordinate Space Setup (1920x1080) ---
+      const scaleX = physicalWidth / 1920;
+      const scaleY = physicalHeight / 1080;
+      const scale = Math.min(scaleX, scaleY);
+      const offsetX = (physicalWidth - 1920 * scale) / 2;
+      const offsetY = (physicalHeight - 1080 * scale) / 2;
+
+      ctx.translate(offsetX, offsetY);
+      ctx.scale(scale, scale);
+
+      // Draw the virtual 1920x1080 bounding box background
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, 1920, 1080);
 
       // --- Phase 1: Draw clipped sources ---
       ctx.save();
       ctx.beginPath();
-      ctx.rect(0, 0, physicalWidth, physicalHeight);
+      ctx.rect(0, 0, 1920, 1080);
       ctx.clip();
 
       const sortedSources = [...activeScene.sources].sort((a, b) => a.zIndex - b.zIndex);
@@ -186,17 +266,125 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
         const w = source.transform.width;
         const h = source.transform.height;
 
-        if (source.type === 'camera' || source.type === 'screen' || source.type === 'image' || source.type === 'pdf') {
+        if (source.type === 'camera' || source.type === 'screen' || source.type === 'image' || source.type === 'pdf' || source.type === 'powerpoint') {
+          if (source.type === 'pdf') {
+            ctx.fillStyle = '#454b51'; 
+            ctx.fillRect(x, y, w, h);
+          }
+
           const cacheKey = source.type === 'pdf' ? `${source.id}_${source.currentPage || 1}` : source.id;
           const frame = frameCache.current[cacheKey];
-          if (frame && (frame as HTMLCanvasElement).width > 0) {
-            const sx = source.crop.left;
-            const sy = source.crop.top;
-            const sw = (frame as any).naturalWidth ? (frame as HTMLImageElement).naturalWidth - source.crop.left - source.crop.right : frame.width - source.crop.left - source.crop.right;
-            const sh = (frame as any).naturalHeight ? (frame as HTMLImageElement).naturalHeight - source.crop.top - source.crop.bottom : frame.height - source.crop.top - source.crop.bottom;
+          const hasFrame = frame && (
+            (frame as HTMLCanvasElement).width > 0 || 
+            (frame as HTMLVideoElement).videoWidth > 0 ||
+            (frame as ImageBitmap).width > 0
+          );
+
+          if (hasFrame) {
+            const fw = (frame as any).videoWidth || (frame as any).naturalWidth || (frame as any).width || 0;
+            const fh = (frame as any).videoHeight || (frame as any).naturalHeight || (frame as any).height || 0;
             
-            if (sw > 0 && sh > 0) {
-              ctx.drawImage(frame, sx, sy, sw, sh, x, y, w, h);
+            if (source.type === 'pdf') {
+              if (fw > 0 && fh > 0) {
+                const currentPageNum = source.currentPage || 1;
+                const scrollOffset = source.scrollOffset || 0;
+                const gap = 20;
+                const zoom = source.zoom || 1;
+                
+                const drawPdfPage = (pgFrame: any, yOffset: number) => {
+                  if (!pgFrame) return h * zoom;
+                  const pfw = pgFrame.width || 0;
+                  const pfh = pgFrame.height || 0;
+                  if (pfw > 0 && pfh > 0) {
+                    const pdfAr = pfw / pfh;
+                    // Fit to height so it matches ManyCam aspect ratio perfectly, scaled by zoom
+                    const drawH = h * zoom;
+                    const drawW = h * pdfAr * zoom;
+                    const offsetX = (w - drawW) / 2;
+                    
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(x, y, w, h);
+                    ctx.clip();
+                    ctx.drawImage(pgFrame, 0, 0, pfw, pfh, x + offsetX, y + yOffset, drawW, drawH);
+                    ctx.restore();
+                    return drawH;
+                  }
+                  return h * zoom;
+                };
+
+                const visiblePagesCount = Math.max(2, Math.ceil(1 / zoom) + 1);
+                const totalPagesCount = source.totalPages || 1;
+                
+                // If the ENTIRE document fits in the container, center it vertically
+                const totalDocHeight = totalPagesCount * (h * zoom) + (totalPagesCount - 1) * gap;
+                let currentYOffset = -scrollOffset;
+                
+                if (totalDocHeight <= h) {
+                  currentYOffset = (h - totalDocHeight) / 2;
+                }
+                
+                for (let i = 0; i < visiblePagesCount; i++) {
+                  const pNum = currentPageNum + i;
+                  if (pNum > totalPagesCount) break;
+                  
+                  const pFrame = frameCache.current[`${source.id}_${pNum}`] || (i === 0 ? frame : null);
+                  const pageH = drawPdfPage(pFrame, currentYOffset);
+                  currentYOffset += pageH + gap;
+                }
+
+                // Draw Scrollbar
+                const totalPages = source.totalPages || 1;
+                if (totalPages > 1 || zoom > 1) {
+                  const PAGE_H = h * zoom + gap;
+                  const maxLastPageOffset = Math.max(0, h * zoom - h);
+                  const maxAbsoluteScrollY = (totalPages - 1) * PAGE_H + maxLastPageOffset;
+                  
+                  if (maxAbsoluteScrollY > 0) {
+                    const absoluteScrollY = (currentPageNum - 1) * PAGE_H + scrollOffset;
+                    const scrollPercent = Math.min(1, Math.max(0, absoluteScrollY / maxAbsoluteScrollY));
+                    
+                    const scrollbarWidth = 6;
+                    const minThumbHeight = 20;
+                    const thumbHeight = Math.max(minThumbHeight, (h / (totalPages * PAGE_H)) * h);
+                    const maxThumbY = h - thumbHeight - 10;
+                    const thumbY = 5 + scrollPercent * maxThumbY;
+                    
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.beginPath();
+                    if (ctx.roundRect) {
+                      ctx.roundRect(x + w - scrollbarWidth - 5, y + thumbY, scrollbarWidth, thumbHeight, scrollbarWidth / 2);
+                    } else {
+                      ctx.rect(x + w - scrollbarWidth - 5, y + thumbY, scrollbarWidth, thumbHeight);
+                    }
+                    ctx.fill();
+                  }
+                }
+              }
+            } else {
+              const zoom = source.zoom || 1;
+              const sx = source.crop.left;
+              const sy = source.crop.top;
+              const sw = fw - source.crop.left - source.crop.right;
+              const sh = fh - source.crop.top - source.crop.bottom;
+              
+              if (sw > 0 && sh > 0) {
+                if (zoom !== 1) {
+                  const drawW = w * zoom;
+                  const drawH = h * zoom;
+                  const offsetX = (w - drawW) / 2;
+                  const offsetY = (h - drawH) / 2;
+                  
+                  ctx.save();
+                  ctx.beginPath();
+                  ctx.rect(x, y, w, h);
+                  ctx.clip();
+                  ctx.drawImage(frame, sx, sy, sw, sh, x + offsetX, y + offsetY, drawW, drawH);
+                  ctx.restore();
+                } else {
+                  ctx.drawImage(frame, sx, sy, sw, sh, x, y, w, h);
+                }
+              }
             }
           } else {
             ctx.fillStyle = '#222';
@@ -213,13 +401,35 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
           ctx.fillText(source.text, x, y);
         }
 
-        if (selectedSourceId === source.id) {
+        ctx.restore();
+      });
+
+      ctx.restore(); // End clipping
+
+      // Phase 2: Draw UI Overlays (Handles)
+      if (selectedSourceId) {
+        const selectedSource = activeScene.sources.find(s => s.id === selectedSourceId);
+        if (selectedSource && selectedSource.visible && !selectedSource.locked) {
+          ctx.save();
+          
+          const cx = selectedSource.transform.x + selectedSource.transform.width / 2;
+          const cy = selectedSource.transform.y + selectedSource.transform.height / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(selectedSource.transform.rotation * Math.PI / 180);
+          ctx.translate(-cx, -cy);
+
           ctx.strokeStyle = '#3b82f6';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 / scale;
+          
+          const x = selectedSource.transform.x;
+          const y = selectedSource.transform.y;
+          const w = selectedSource.transform.width;
+          const h = selectedSource.transform.height;
+          
           ctx.strokeRect(x, y, w, h);
           
           ctx.fillStyle = '#ffffff';
-          const handleSize = 6;
+          const handleSize = 8 / scale;
           const half = handleSize / 2;
           const handles = [
             [x, y], [x + w/2, y], [x + w, y],
@@ -230,12 +440,10 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
             ctx.fillRect(hx - half, hy - half, handleSize, handleSize);
             ctx.strokeRect(hx - half, hy - half, handleSize, handleSize);
           });
+          
+          ctx.restore();
         }
-
-        ctx.restore();
-      });
-
-      ctx.restore(); // End clipping
+      }
 
       ctx.restore(); // Restore root transform
 
@@ -247,14 +455,25 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
   }, [activeScene, selectedSourceId]);
 
   // 3. Mouse Interactions (Drag & Resize)
-  const getLogicalMousePos = (e: React.MouseEvent) => {
+  const getLogicalMousePos = (e: React.MouseEvent | React.WheelEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
+    const physicalWidth = rect.width;
+    const physicalHeight = rect.height;
     
+    const scaleX = physicalWidth / 1920;
+    const scaleY = physicalHeight / 1080;
+    const scale = Math.min(scaleX, scaleY);
+    const offsetX = (physicalWidth - 1920 * scale) / 2;
+    const offsetY = (physicalHeight - 1080 * scale) / 2;
+
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
+      x: (rawX - offsetX) / scale,
+      y: (rawY - offsetY) / scale
     };
   };
 
@@ -319,6 +538,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
     // 1. Hover Logic (When not dragging)
     if (!interactionMode) {
       let newCursor = 'default';
+      let hoveringPdf = false;
       
       if (activeScene && selectedSourceId) {
         const selectedSource = activeScene.sources.find(s => s.id === selectedSourceId);
@@ -347,14 +567,19 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
 
           if (hoveredHandle) {
             newCursor = hoveredHandle.mode;
+            if (selectedSource.type === 'pdf') hoveringPdf = true;
           } else if (x >= sx && x <= sx + sw && y >= sy && y <= sy + sh) {
-            newCursor = 'move';
+            newCursor = selectedSource.type === 'pdf' ? 'default' : 'move';
+            if (selectedSource.type === 'pdf') hoveringPdf = true;
           }
         }
       }
       
       if (cursorStyle !== newCursor) {
         setCursorStyle(newCursor);
+      }
+      if (isPdfHovered !== hoveringPdf) {
+        setIsPdfHovered(hoveringPdf);
       }
       return;
     }
@@ -376,22 +601,42 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
     if (interactionMode === 'move') {
       newX += dx;
       newY += dy;
+      
+      // Clamp movement bounds
+      if (newX < 0) newX = 0;
+      if (newY < 0) newY = 0;
+      if (newX + newWidth > 1920) newX = 1920 - newWidth;
+      if (newY + newHeight > 1080) newY = 1080 - newHeight;
     } else {
       const dir = interactionMode.split('-')[1] || '';
       
       if (dir.includes('w')) {
         newX += dx;
         newWidth -= dx;
+        if (newX < 0) {
+          newWidth += newX; // Reduce width by the overflow
+          newX = 0;
+        }
       }
       if (dir.includes('e')) {
         newWidth += dx;
+        if (newX + newWidth > 1920) {
+          newWidth = 1920 - newX;
+        }
       }
       if (dir.includes('n')) {
         newY += dy;
         newHeight -= dy;
+        if (newY < 0) {
+          newHeight += newY; // Reduce height by the overflow
+          newY = 0;
+        }
       }
       if (dir.includes('s')) {
         newHeight += dy;
+        if (newY + newHeight > 1080) {
+          newHeight = 1080 - newY;
+        }
       }
 
       if (newWidth < 10) {
@@ -426,6 +671,11 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
     setInteractionMode(null);
   };
 
+  const handleMouseLeave = () => {
+    setInteractionMode(null);
+    setIsPdfHovered(false);
+  };
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     if (!activeScene) return;
     const canvas = canvasRef.current;
@@ -453,12 +703,12 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
           const frameH = (frame as any).naturalHeight || frame.height;
           if (frameW && frameH) {
             const ar = frameW / frameH;
-            let targetW = rect.width;
-            let targetH = rect.height;
-            if (rect.width / rect.height > ar) {
-              targetW = rect.height * ar;
+            let targetW = 1920;
+            let targetH = 1080;
+            if (1920 / 1080 > ar) {
+              targetW = 1080 * ar;
             } else {
-              targetH = rect.width / ar;
+              targetH = 1920 / ar;
             }
             
             dispatch({
@@ -469,8 +719,8 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
                 updates: {
                   transform: {
                     ...source.transform,
-                    x: (rect.width - targetW) / 2,
-                    y: (rect.height - targetH) / 2,
+                    x: (1920 - targetW) / 2,
+                    y: (1080 - targetH) / 2,
                     width: targetW,
                     height: targetH
                   }
@@ -484,15 +734,93 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
     }
   };
 
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!activeScene || !selectedSourceId) return;
+    const selectedSource = activeScene.sources.find(s => s.id === selectedSourceId);
+    if (!selectedSource || selectedSource.locked || !selectedSource.visible) return;
+
+    // Handle trackpad pinch-to-zoom or Ctrl+Scroll for all sources
+    if (e.ctrlKey) {
+      // Scale deltaY for smooth trackpad pinch, but cap it to prevent massive jumps from physical mouse wheels
+      const rawDelta = e.deltaY * -0.005; 
+      const zoomDelta = Math.sign(rawDelta) * Math.min(Math.abs(rawDelta), 0.15);
+      
+      let newZoom = (selectedSource.zoom || (selectedSource.type === 'pdf' ? 1.5 : 1)) + zoomDelta;
+      newZoom = Math.min(3, Math.max(0.1, newZoom));
+      
+      dispatch({
+        type: 'UPDATE_SOURCE',
+        payload: {
+          sceneId: activeScene.id,
+          sourceId: selectedSource.id,
+          updates: { zoom: newZoom }
+        }
+      });
+      return;
+    }
+
+    // Only PDFs support vertical document scrolling
+    if (selectedSource.type !== 'pdf') return;
+
+    // Use the actual deltaY for smooth trackpad and mouse scrolling
+    let newOffset = (selectedSource.scrollOffset || 0) + e.deltaY;
+    let newPage = selectedSource.currentPage || 1;
+    
+    // We use the source's transform height scaled by zoom as the page height for scroll math, plus a 20px gap
+    const zoom = selectedSource.zoom || 1;
+    const PAGE_HEIGHT = selectedSource.transform.height * zoom + 20; 
+
+    // Handle jumping multiple pages if scrolling very fast
+    while (newOffset > PAGE_HEIGHT && newPage < (selectedSource.totalPages || 1)) {
+      newPage += 1;
+      newOffset -= PAGE_HEIGHT;
+    }
+    
+    while (newOffset < 0 && newPage > 1) {
+      newPage -= 1;
+      newOffset += PAGE_HEIGHT;
+    }
+    
+    // Clamp to start of first page
+    if (newPage === 1 && newOffset < 0) {
+      newOffset = 0;
+    }
+    
+    // Prevent scrolling past the end of the last page
+    const totalPagesCount = selectedSource.totalPages || 1;
+    const totalDocHeight = totalPagesCount * (selectedSource.transform.height * zoom) + (totalPagesCount - 1) * 20;
+    
+    // If the entire document fits within the bounds, we shouldn't be able to scroll at all
+    if (totalDocHeight <= selectedSource.transform.height) {
+      newPage = 1;
+      newOffset = 0;
+    } else if (newPage === totalPagesCount) {
+      const maxLastPageOffset = Math.max(0, selectedSource.transform.height * zoom - selectedSource.transform.height);
+      if (newOffset > maxLastPageOffset) {
+        newOffset = maxLastPageOffset;
+      }
+    }
+
+    dispatch({ 
+      type: 'UPDATE_SOURCE', 
+      payload: { 
+        sceneId: activeScene.id, 
+        sourceId: selectedSource.id, 
+        updates: { scrollOffset: newOffset, currentPage: newPage } 
+      } 
+    });
+  };
+
   const selectedSource = activeScene?.sources.find(s => s.id === selectedSourceId);
 
   return (
     <div 
-      className="flex-1 bg-black relative overflow-hidden"
+      className="flex-1 min-w-0 min-h-0 bg-transparent relative overflow-hidden flex items-center justify-center"
       style={{ cursor: cursorStyle }}
+      onWheel={handleWheel}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
     >
       <canvas
         id="main-preview-canvas"
@@ -507,29 +835,43 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
       />
       
       {/* PDF Floating Overlay */}
-      {selectedSource && selectedSource.type === 'pdf' && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center bg-[#2c313a]/90 text-white px-3 py-1.5 rounded shadow-lg backdrop-blur text-sm select-none border border-[#4b5563]">
-          <button 
-            disabled={!selectedSource.currentPage || selectedSource.currentPage <= 1}
-            onClick={() => dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene!.id, sourceId: selectedSource.id, updates: { currentPage: (selectedSource.currentPage || 1) - 1 } } })}
-            className="p-1 hover:text-[#00B4FF] disabled:opacity-50 disabled:hover:text-white"
+      {selectedSource && selectedSource.type === 'pdf' && isPdfHovered && (() => {
+        const { scale, offsetX, offsetY } = canvasLayout;
+        const cx = selectedSource.transform.x + selectedSource.transform.width / 2;
+        const cy = selectedSource.transform.y + selectedSource.transform.height;
+        const physicalX = cx * scale + offsetX;
+        const physicalY = cy * scale + offsetY;
+        
+        return (
+          <div 
+            className="absolute flex items-center space-x-1.5 select-none z-10 -translate-x-1/2 -translate-y-[calc(100%+16px)]"
+            style={{ left: physicalX, top: physicalY }}
+            onMouseEnter={() => setIsPdfHovered(true)}
           >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /><path fillRule="evenodd" d="M8 5a1 1 0 011 1v8a1 1 0 11-2 0V6a1 1 0 011-1z" clipRule="evenodd" /></svg>
-          </button>
-          
-          <span className="mx-4 font-medium font-mono tracking-wider">
-            {selectedSource.currentPage || 1} / {selectedSource.totalPages || 1}
-          </span>
-          
-          <button 
-            disabled={!selectedSource.totalPages || (selectedSource.currentPage || 1) >= selectedSource.totalPages}
-            onClick={() => dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene!.id, sourceId: selectedSource.id, updates: { currentPage: (selectedSource.currentPage || 1) + 1 } } })}
-            className="p-1 hover:text-[#00B4FF] disabled:opacity-50 disabled:hover:text-white"
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /><path fillRule="evenodd" d="M12 5a1 1 0 011 1v8a1 1 0 11-2 0V6a1 1 0 011-1z" clipRule="evenodd" /></svg>
-          </button>
-        </div>
-      )}
+            <button 
+              disabled={!selectedSource.currentPage || selectedSource.currentPage <= 1}
+              onClick={() => dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene!.id, sourceId: selectedSource.id, updates: { currentPage: (selectedSource.currentPage || 1) - 1, scrollOffset: 0 } } })}
+              className="flex items-center justify-center w-8 h-7 bg-[#212429]/95 text-slate-300 rounded hover:bg-[#343a41] disabled:opacity-40 disabled:hover:bg-[#212429]/95 shadow-sm transition-colors border border-white/5"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M3 2v12h2.5V2H3zm8.5 12L6 8l5.5-6v12z"/></svg>
+            </button>
+            
+            <div className="flex items-center justify-center px-3 h-7 bg-[#212429]/95 rounded shadow-sm text-[11px] font-bold tracking-wide border border-white/5">
+              <span className="text-white">{selectedSource.currentPage || 1}</span>
+              <span className="text-slate-400 mx-1.5 font-normal">/</span>
+              <span className="text-white">{selectedSource.totalPages || 1}</span>
+            </div>
+            
+            <button 
+              disabled={!selectedSource.totalPages || (selectedSource.currentPage || 1) >= selectedSource.totalPages}
+              onClick={() => dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene!.id, sourceId: selectedSource.id, updates: { currentPage: (selectedSource.currentPage || 1) + 1, scrollOffset: 0 } } })}
+              className="flex items-center justify-center w-8 h-7 bg-[#212429]/95 text-slate-300 rounded hover:bg-[#343a41] disabled:opacity-40 disabled:hover:bg-[#212429]/95 shadow-sm transition-colors border border-white/5"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 2v12H13V2h-2.5zM4.5 2L10 8l-5.5 6V2z"/></svg>
+            </button>
+          </div>
+        );
+      })()}
       
       {/* Helper overlay when no scene */}
       {!activeScene && (

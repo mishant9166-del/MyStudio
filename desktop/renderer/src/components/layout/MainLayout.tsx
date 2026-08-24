@@ -7,8 +7,8 @@ export const MainLayout: React.FC<{
   controls: React.ReactNode;
   scenes: React.ReactNode;
   rightPanel: React.ReactNode; // Sources & Properties flyout
-  activeSidebarTab: 'sources' | 'audio' | 'settings' | 'streaming' | 'vcam' | null;
-  onTabChange: (tab: 'sources' | 'audio' | 'settings' | 'streaming' | 'vcam' | null) => void;
+  activeSidebarTab: 'presets' | 'effects' | 'time' | 'background' | 'sources' | 'audio' | 'settings' | 'streaming' | 'vcam' | 'lowerthirds' | 'magic' | 'gallery' | 'arrangement' | null;
+  onTabChange: (tab: 'presets' | 'effects' | 'time' | 'background' | 'sources' | 'audio' | 'settings' | 'streaming' | 'vcam' | 'lowerthirds' | 'magic' | 'gallery' | 'arrangement' | null) => void;
 }> = ({ header, preview, controls, scenes, rightPanel, activeSidebarTab, onTabChange }) => {
 
   return (
@@ -29,10 +29,8 @@ export const MainLayout: React.FC<{
         <div className="flex-1 flex flex-col min-w-0 bg-slate-100">
           
           {/* Main Preview */}
-          <main className="flex-1 p-4 flex flex-col items-center justify-center relative overflow-hidden bg-[#F8FAFC]">
-            <div className="w-full h-full relative">
-              {preview}
-            </div>
+          <main className="flex-1 bg-[#F8FAFC] flex flex-col min-h-0 min-w-0 relative overflow-hidden">
+            {preview}
           </main>
 
           {/* Bottom Action Controls */}
@@ -48,11 +46,9 @@ export const MainLayout: React.FC<{
         </div>
 
         {/* Right Sidebar Flyout */}
-        {activeSidebarTab !== null && (
-          <aside className="w-[240px] bg-white border-l border-slate-200 shadow-xl z-20 flex flex-col shrink-0 transition-all duration-300">
-            {rightPanel}
-          </aside>
-        )}
+        <aside className={`${activeSidebarTab !== null ? 'w-[240px] border-l' : 'w-0 border-none overflow-hidden'} bg-white border-slate-200 shadow-xl z-20 flex flex-col shrink-0 transition-all duration-300`}>
+          {rightPanel}
+        </aside>
 
         {/* Rightmost Thin Icon Strip */}
         <div className="w-11 bg-[#f8fafc] border-l border-slate-200 flex flex-col items-center shrink-0 z-30 shadow-sm overflow-y-auto scrollbar-none justify-between">

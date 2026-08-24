@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import { useRecording } from '../../context/RecordingContext';
 import { useStreaming } from '../../context/StreamingContext';
 import { useVirtualCamera } from '../../context/VirtualCameraContext';
-import { MoreVertical, ListVideo, Video, Radio, Camera, MicOff, Maximize, Grid2X2, MonitorOff } from 'lucide-react';
+import { MoreVertical, ListVideo, Video, Radio, Camera, MicOff, Maximize, Grid2X2, MonitorOff, Settings } from 'lucide-react';
 
-export const Controls = () => {
+export const Controls = ({ onOpenSettings }: { onOpenSettings: () => void }) => {
   const { isRecording, startRecording, stopRecording } = useRecording();
   const { isStreaming, startStreaming, stopStreaming } = useStreaming();
   const { isVCamActive, startVirtualCamera, stopVirtualCamera } = useVirtualCamera();
@@ -69,6 +69,9 @@ export const Controls = () => {
         </div>
         <button className="p-1 hover:bg-slate-100 hover:text-slate-600 rounded transition-colors" title="Scene List">
           <ListVideo className="w-5 h-5" strokeWidth={2} />
+        </button>
+        <button onClick={onOpenSettings} className="p-1 hover:bg-slate-100 hover:text-slate-600 rounded transition-colors" title="Settings">
+          <Settings className="w-5 h-5" strokeWidth={2.5} />
         </button>
       </div>
 

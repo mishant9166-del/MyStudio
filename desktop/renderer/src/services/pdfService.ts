@@ -9,9 +9,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 const pdfCache = new Map<string, pdfjsLib.PDFDocumentProxy>();
 const pageCache = new Map<string, HTMLCanvasElement>();
 
-export const getPdfPageAsCanvas = async (base64Data: string, pageNumber: number): Promise<{ canvas: HTMLCanvasElement, totalPages: number } | null> => {
+export const getPdfPageAsCanvas = async (sourceId: string, base64Data: string, pageNumber: number): Promise<{ canvas: HTMLCanvasElement, totalPages: number } | null> => {
   try {
-    let pdfDoc = pdfCache.get(base64Data.substring(0, 100));
+    let pdfDoc = pdfCache.get(sourceId);
     
     if (!pdfDoc) {
       const binaryString = atob(base64Data);
@@ -21,11 +21,11 @@ export const getPdfPageAsCanvas = async (base64Data: string, pageNumber: number)
       }
       
       pdfDoc = await pdfjsLib.getDocument({ data: bytes }).promise;
-      pdfCache.set(base64Data.substring(0, 100), pdfDoc);
+      pdfCache.set(sourceId, pdfDoc);
     }
 
     const totalPages = pdfDoc.numPages;
-    const cacheKey = `${base64Data.substring(0, 100)}_${pageNumber}`;
+    const cacheKey = `${sourceId}_${pageNumber}`;
     if (pageCache.has(cacheKey)) {
       return { canvas: pageCache.get(cacheKey)!, totalPages };
     }

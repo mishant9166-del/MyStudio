@@ -1,9 +1,62 @@
 import { useState, useRef, useEffect } from 'react';
 import { Crop, ZoomIn, Sun, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, RefreshCw, ChevronDown, Plus, Minus } from 'lucide-react';
+import { useScenes } from '../../context/SceneContext';
 
-export function Header() {
+const SmoothSlider = ({ value, min, max, onChange, className, style }: any) => {
+  const [localValue, setLocalValue] = useState(value);
+  const lastChangeTime = useRef<number>(0);
+  const lastDispatched = useRef<number>(value);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    // Only accept incoming value from props if the user hasn't dragged in the last 200ms
+    if (Date.now() - lastChangeTime.current > 200) {
+      setLocalValue(value);
+      lastDispatched.current = value;
+    }
+  }, [value]);
+
+  const handleChange = (e: any) => {
+    const val = parseInt(e.target.value);
+    setLocalValue(val);
+    lastChangeTime.current = Date.now();
+    
+    // Throttle dispatch so the native slider drag remains buttery smooth
+    if (!timeoutRef.current) {
+      timeoutRef.current = setTimeout(() => {
+        onChange(val);
+        lastDispatched.current = val;
+        timeoutRef.current = null;
+      }, 32); // ~30fps dispatch rate
+    }
+  };
+
+  const percent = ((localValue - min) / (max - min)) * 100;
+  const combinedStyle = {
+    ...style,
+    background: `linear-gradient(to right, #0ea5e9 ${percent}%, #475569 ${percent}%)`
+  };
+
+  return (
+    <input 
+      type="range" 
+      min={min} 
+      max={max} 
+      value={localValue}
+      onChange={handleChange}
+      className={className}
+      style={combinedStyle}
+    />
+  );
+};
+
+export function Header({ selectedSourceId }: { selectedSourceId?: string | null }) {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const { state, dispatch } = useScenes();
+
+  const activeScene = state.scenes.find(s => s.id === state.activeSceneId);
+  const selectedSource = activeScene?.sources.find(s => s.id === selectedSourceId);
 
   const handleMouseEnter = (id: string) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -27,7 +80,7 @@ export function Header() {
   }, []);
 
   // Dropdown Container Component
-  const Dropdown = ({ id, title, children, width = 'w-64', align = 'right' }: { id: string, title?: string, children: React.ReactNode, width?: string, align?: 'left' | 'right' | 'center' }) => {
+  const Dropdown = ({ id, title, children, width = 'w-64', align = 'right', onReset }: { id: string, title?: string, children: React.ReactNode, width?: string, align?: 'left' | 'right' | 'center', onReset?: () => void }) => {
     if (activeDropdown !== id) return null;
     
     let alignClass = 'right-0';
@@ -46,9 +99,11 @@ export function Header() {
           {title && (
             <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700/50 bg-[#2c3439] relative z-10 rounded-t">
               <span className="text-[11px] font-bold tracking-wider text-slate-300">{title}</span>
-              <button className="text-slate-400 hover:text-white transition-colors">
-                <RefreshCw className="w-3 h-3" />
-              </button>
+              {onReset && (
+                <button onClick={onReset} className="text-slate-400 hover:text-white transition-colors">
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+              )}
             </div>
           )}
           <div className="p-3 relative z-10">
@@ -101,38 +156,113 @@ export function Header() {
           
           {/* Transform Icon */}
           <div 
-            className="relative h-full flex items-center px-2"
+            className={`relative h-full flex items-center px-2 ${!selectedSource ? 'opacity-50 pointer-events-none' : ''}`}
             onMouseEnter={() => handleMouseEnter('transform')}
             onMouseLeave={handleMouseLeave}
           >
             <button style={{ WebkitAppRegion: 'no-drag' } as any} className={`hover:text-slate-600 transition-colors ${activeDropdown === 'transform' ? 'text-slate-600' : ''}`} title="Transform">
               <Crop className="w-[18px] h-[18px]" strokeWidth={1.5} />
             </button>
-            <Dropdown id="transform" title="TRANSFORM" width="w-56">
+            <Dropdown id="transform" title="TRANSFORM" width="w-56"
+              onReset={() => {
+                if (activeScene && selectedSource) {
+                  dispatch({ 
+                    type: 'UPDATE_SOURCE', 
+                    payload: { 
+                      sceneId: activeScene.id, 
+                      sourceId: selectedSource.id, 
+                      updates: { 
+                        transform: { ...selectedSource.transform, rotation: 0 },
+                        flipX: false,
+                        flipY: false,
+                        cornerRadius: 0,
+                        opacity: 1
+                      } 
+                    } 
+                  });
+                }
+              }}
+            >
               <div className="space-y-4">
                 <button className="w-full flex items-center justify-between bg-[#404b53] hover:bg-[#4b5760] transition-colors rounded px-2.5 py-1.5 text-xs text-slate-200">
                   <span>Fit (default)</span>
                   <ChevronDown className="w-3 h-3" />
                 </button>
                 <div className="flex items-center space-x-1">
-                  <button className="flex-1 bg-[#404b53] hover:bg-[#4b5760] rounded py-1.5 flex justify-center text-slate-300"><RotateCcw className="w-3.5 h-3.5" /></button>
-                  <button className="flex-1 bg-[#404b53] hover:bg-[#4b5760] rounded py-1.5 flex justify-center text-slate-300"><RotateCw className="w-3.5 h-3.5" /></button>
-                  <button className="flex-1 bg-[#404b53] hover:bg-[#4b5760] rounded py-1.5 flex justify-center text-slate-300"><FlipHorizontal className="w-3.5 h-3.5" /></button>
-                  <button className="flex-1 bg-[#404b53] hover:bg-[#4b5760] rounded py-1.5 flex justify-center text-slate-300"><FlipVertical className="w-3.5 h-3.5" /></button>
+                  <button 
+                    onClick={() => {
+                      if (activeScene && selectedSource) {
+                        const newRotation = (selectedSource.transform.rotation - 90) % 360;
+                        dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { transform: { ...selectedSource.transform, rotation: newRotation } } } });
+                      }
+                    }}
+                    className="flex-1 bg-[#404b53] hover:bg-[#4b5760] rounded py-1.5 flex justify-center text-slate-300" title="Rotate Left"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (activeScene && selectedSource) {
+                        const newRotation = (selectedSource.transform.rotation + 90) % 360;
+                        dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { transform: { ...selectedSource.transform, rotation: newRotation } } } });
+                      }
+                    }}
+                    className="flex-1 bg-[#404b53] hover:bg-[#4b5760] rounded py-1.5 flex justify-center text-slate-300" title="Rotate Right"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (activeScene && selectedSource) {
+                        dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { flipX: !selectedSource.flipX } } });
+                      }
+                    }}
+                    className={`flex-1 hover:bg-[#4b5760] rounded py-1.5 flex justify-center transition-colors ${selectedSource?.flipX ? 'bg-[#0ea5e9] text-white' : 'bg-[#404b53] text-slate-300'}`} title="Flip Horizontal"
+                  >
+                    <FlipHorizontal className="w-3.5 h-3.5" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (activeScene && selectedSource) {
+                        dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { flipY: !selectedSource.flipY } } });
+                      }
+                    }}
+                    className={`flex-1 hover:bg-[#4b5760] rounded py-1.5 flex justify-center transition-colors ${selectedSource?.flipY ? 'bg-[#0ea5e9] text-white' : 'bg-[#404b53] text-slate-300'}`} title="Flip Vertical"
+                  >
+                    <FlipVertical className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px] text-slate-300">
                     <span>Corner Radius</span>
-                    <span className="bg-[#404b53] px-1.5 rounded">0%</span>
+                    <span className="bg-[#404b53] px-1.5 rounded">{selectedSource?.cornerRadius || 0}%</span>
                   </div>
-                  <input type="range" className="w-full h-1 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-[#0ea5e9]" defaultValue={0} />
+                  <SmoothSlider 
+                    min="0" max="100" 
+                    value={selectedSource?.cornerRadius || 0}
+                    onChange={(val: number) => {
+                      if (activeScene && selectedSource) {
+                        dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { cornerRadius: val } } });
+                      }
+                    }}
+                    className="w-full h-1 rounded-lg appearance-none cursor-pointer accent-[#0ea5e9]" 
+                  />
                 </div>
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px] text-slate-300">
                     <span>Opacity</span>
-                    <span className="bg-[#404b53] px-1.5 rounded">100%</span>
+                    <span className="bg-[#404b53] px-1.5 rounded">{Math.round((selectedSource?.opacity ?? 1) * 100)}%</span>
                   </div>
-                  <input type="range" className="w-full h-1 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-[#0ea5e9]" defaultValue={100} />
+                  <SmoothSlider 
+                    min="0" max="100" 
+                    value={Math.round((selectedSource?.opacity ?? 1) * 100)}
+                    onChange={(val: number) => {
+                      if (activeScene && selectedSource) {
+                        dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { opacity: val / 100 } } });
+                      }
+                    }}
+                    className="w-full h-1 rounded-lg appearance-none cursor-pointer accent-[#0ea5e9]" 
+                  />
                 </div>
               </div>
             </Dropdown>
@@ -140,18 +270,54 @@ export function Header() {
 
           {/* Zoom Icon */}
           <div 
-            className="relative h-full flex items-center px-2"
+            className={`relative h-full flex items-center px-2 ${!selectedSource ? 'opacity-50 pointer-events-none' : ''}`}
             onMouseEnter={() => handleMouseEnter('zoom')}
             onMouseLeave={handleMouseLeave}
           >
             <button style={{ WebkitAppRegion: 'no-drag' } as any} className={`hover:text-slate-600 transition-colors ${activeDropdown === 'zoom' ? 'text-slate-600' : ''}`} title="Zoom">
               <ZoomIn className="w-[18px] h-[18px]" strokeWidth={1.5} />
             </button>
-            <Dropdown id="zoom" title="ZOOM" width="w-48">
+            <Dropdown 
+              id="zoom" 
+              title="ZOOM" 
+              width="w-56"
+              onReset={() => {
+                if (activeScene && selectedSource) {
+                  const defaultZoom = selectedSource.type === 'pdf' ? 1.5 : 1;
+                  dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { zoom: defaultZoom } } });
+                }
+              }}
+            >
               <div className="flex items-center space-x-2 bg-[#404b53] rounded p-1">
-                <button className="p-1 hover:bg-[#4b5760] rounded text-slate-300"><Minus className="w-3 h-3" /></button>
-                <input type="range" className="flex-1 h-1 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-[#0ea5e9]" defaultValue={50} />
-                <button className="p-1 hover:bg-[#4b5760] rounded text-slate-300"><Plus className="w-3 h-3" /></button>
+                <button 
+                  onClick={() => {
+                    if (activeScene && selectedSource) {
+                      const newZoom = Math.max(0.1, (selectedSource.zoom || 1) - 0.1);
+                      dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { zoom: newZoom } } });
+                    }
+                  }}
+                  className="p-1 hover:bg-[#4b5760] rounded text-slate-300"
+                ><Minus className="w-3 h-3" /></button>
+                <SmoothSlider 
+                  min="10" 
+                  max="300" 
+                  value={(selectedSource?.zoom || 1) * 100}
+                  onChange={(val: number) => {
+                    if (activeScene && selectedSource) {
+                      dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { zoom: val / 100 } } });
+                    }
+                  }}
+                  className="flex-1 h-1 rounded-lg appearance-none cursor-pointer accent-[#0ea5e9]"
+                />
+                <button 
+                  onClick={() => {
+                    if (activeScene && selectedSource) {
+                      const newZoom = Math.min(3.0, (selectedSource.zoom || 1) + 0.1);
+                      dispatch({ type: 'UPDATE_SOURCE', payload: { sceneId: activeScene.id, sourceId: selectedSource.id, updates: { zoom: newZoom } } });
+                    }
+                  }}
+                  className="p-1 hover:bg-[#4b5760] rounded text-slate-300"
+                ><Plus className="w-3 h-3" /></button>
               </div>
             </Dropdown>
           </div>
@@ -177,7 +343,12 @@ export function Header() {
                 ].map((item, i) => (
                   <div key={i} className="flex items-center space-x-3">
                     <div className="w-4 flex justify-center">{item.icon}</div>
-                    <input type="range" className="flex-1 h-0.5 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-slate-300" defaultValue={50} />
+                    <SmoothSlider 
+                      min="0" max="100"
+                      className="flex-1 h-0.5 rounded-lg appearance-none cursor-pointer accent-slate-300" 
+                      value={50} 
+                      onChange={() => {}}
+                    />
                     <span className="text-[10px] text-slate-300 w-4 text-right">{item.val}</span>
                   </div>
                 ))}

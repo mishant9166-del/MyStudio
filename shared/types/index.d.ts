@@ -43,7 +43,11 @@ export interface BaseSource {
   zIndex: number;
   transform: Transform;
   crop: Crop;
+  zoom?: number;
   opacity: number; // 0 to 1
+  flipX?: boolean;
+  flipY?: boolean;
+  cornerRadius?: number; // 0 to 100
 }
 
 export interface CameraSource extends BaseSource {
@@ -66,6 +70,7 @@ export interface PdfSource extends BaseSource {
   file?: string;
   currentPage?: number;
   totalPages?: number;
+  scrollOffset?: number;
 }
 
 export interface PowerPointSource extends BaseSource {
@@ -123,6 +128,12 @@ declare global {
       selectDocumentFile: () => Promise<string | null>;
       readImageFile: (filePath: string) => Promise<string | null>; // Returns base64 or object URL for local images
       readDocumentFile: (filePath: string) => Promise<string | null>; // Returns base64 buffer string
+      
+      selectPowerPointFile: () => Promise<string | null>;
+      startPowerPoint: (sourceId: string, filePath: string) => Promise<string | null>;
+      stopPowerPoint: (sourceId: string) => Promise<void>;
+      nextPowerPointSlide: (sourceId: string) => Promise<void>;
+      prevPowerPointSlide: (sourceId: string) => Promise<void>;
       
       // Audio IPC
       getAudioInputDevices: () => Promise<AudioDevice[]>;

@@ -16,7 +16,7 @@ type Action =
 
 const generateDefaultScene = (): Scene => ({
   id: uuidv4(),
-  name: 'Gaming',
+  name: 'Preset 1',
   sources: [
     {
       id: uuidv4(),

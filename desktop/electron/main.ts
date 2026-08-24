@@ -154,8 +154,103 @@ ipcMain.handle('display:stop', async (event, sourceId: string) => {
   }
 });
 
-import { dialog } from 'electron';
+import { dialog, desktopCapturer } from 'electron';
 import fs from 'fs';
+
+ipcMain.handle('powerpoint:select', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'PowerPoint', extensions: ['ppt', 'pptx'] }]
+  });
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
+});
+
+ipcMain.handle('powerpoint:start', async (event, sourceId: string, filePath: string) => {
+  const isWin = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+  
+  if (isWin) {
+    const psScript = `
+      $ErrorActionPreference = 'Stop'
+      try {
+        $ppt = [System.Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application')
+      } catch {
+        $ppt = New-Object -ComObject PowerPoint.Application
+      }
+      $ppt.Visible = -1
+      $presentation = $ppt.Presentations.Open('${filePath.replace(/'/g, "''")}')
+      $presentation.SlideShowSettings.ShowType = 2
+      $slideshow = $presentation.SlideShowSettings.Run()
+    `;
+    const command = `powershell -Command "${psScript.replace(/\n/g, ';')}"`;
+    exec(command, (error, stdout, stderr) => {
+      if (error) console.error("PowerPoint Start Error:", error);
+      if (stderr) console.error("PowerPoint Start Stderr:", stderr);
+    });
+  } else if (isMac) {
+    // Note: Mac uses POSIX paths or Mac paths, AppleScript might need POSIX file conversion
+    const appleScript = `
+      tell application "Microsoft PowerPoint"
+        activate
+        open (POSIX file "${filePath}")
+        run slide show slide show settings of active presentation
+      end tell
+    `;
+    exec(`osascript -e '${appleScript}'`);
+  }
+
+  // Poll for the window for up to 10 seconds
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const sources = await desktopCapturer.getSources({ types: ['window'] });
+    
+    // Log all window names so we can debug exactly what PowerPoint is calling itself!
+    if (i === 19) {
+      console.log("All open windows:", sources.map(s => s.name).join(", "));
+    }
+
+    const pptWindow = sources.find(s => 
+      s.name.toLowerCase().includes('powerpoint') || 
+      s.name.toLowerCase().includes('slide show') || 
+      s.name.toLowerCase().includes(path.basename(filePath).toLowerCase()) ||
+      s.name.toLowerCase().includes('diaporama')
+    );
+    if (pptWindow) {
+      console.log("Found PowerPoint window:", pptWindow.name);
+      // Wait for PowerPoint to actually render its window completely to prevent WebRTC GetFrame errors
+      await new Promise(r => setTimeout(r, 1500));
+      return pptWindow.id;
+    }
+  }
+  return null;
+});
+
+ipcMain.handle('powerpoint:next', async () => {
+  if (process.platform === 'win32') {
+    exec(`powershell -Command "$ppt = [System.Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $ppt.ActivePresentation.SlideShowWindow.View.Next()"`);
+  } else if (process.platform === 'darwin') {
+    exec(`osascript -e 'tell application "Microsoft PowerPoint" to go to next slide slide show view of slide show window 1'`);
+  }
+});
+
+ipcMain.handle('powerpoint:prev', async () => {
+  if (process.platform === 'win32') {
+    exec(`powershell -Command "$ppt = [System.Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $ppt.ActivePresentation.SlideShowWindow.View.Previous()"`);
+  } else if (process.platform === 'darwin') {
+    exec(`osascript -e 'tell application "Microsoft PowerPoint" to go to previous slide slide show view of slide show window 1'`);
+  }
+});
+
+ipcMain.handle('powerpoint:stop', async () => {
+  if (process.platform === 'win32') {
+    exec(`powershell -Command "$ppt = [System.Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $ppt.ActivePresentation.SlideShowWindow.View.Exit()"`);
+  } else if (process.platform === 'darwin') {
+    exec(`osascript -e 'tell application "Microsoft PowerPoint" to exit slide show slide show view of slide show window 1'`);
+  }
+});
 
 ipcMain.handle('image:select', async () => {
   const result = await dialog.showOpenDialog({

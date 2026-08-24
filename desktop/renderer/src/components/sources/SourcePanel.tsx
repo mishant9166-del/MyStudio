@@ -52,35 +52,91 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
   }
 
   const handleAddCamera = (device: CameraDevice) => {
-    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: uuidv4(), type: 'camera', name: device.name, deviceId: device.id, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    const newId = uuidv4();
+    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'camera', name: device.name, deviceId: device.id, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    onSelectSource(newId);
   };
 
   const handleAddDisplay = (device: DisplayDevice) => {
-    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: uuidv4(), type: 'screen', name: device.name, displayId: device.id, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    const newId = uuidv4();
+    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'screen', name: device.name, displayId: device.id, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    onSelectSource(newId);
   };
 
   const handleAddImage = async () => {
     const filePath = await window.electronAPI.selectImageFile();
     if (filePath) {
-      dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: uuidv4(), type: 'image', name: 'Image', filePath, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 500, y: 300, width: 400, height: 400, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+      const fileName = filePath.split(/[/\\]/).pop() || 'Image';
+      const newId = uuidv4();
+      dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'image', name: fileName, filePath, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 500, y: 300, width: 400, height: 400, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+      onSelectSource(newId);
     }
   };
 
   const handleAddPdf = async () => {
     const filePath = await window.electronAPI.selectDocumentFile();
     if (filePath) {
-      dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: uuidv4(), type: 'pdf', name: 'PDF Document', file: filePath, currentPage: 1, totalPages: 1, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 578, y: 0, width: 764, height: 1080, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+      const fileName = filePath.split(/[/\\]/).pop() || 'PDF Document';
+      const newId = uuidv4();
+      
+      dispatch({ 
+        type: 'ADD_SOURCE', 
+        payload: { 
+          sceneId: activeScene.id, 
+          source: { 
+            id: newId, 
+            type: 'pdf', 
+            name: fileName, 
+            file: filePath, 
+            currentPage: 1, 
+            totalPages: 1, 
+            scrollOffset: 0, 
+            visible: true, 
+            locked: false, 
+            zIndex: 10, 
+            opacity: 1, 
+            zoom: 1.5,
+            transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, 
+            crop: { left: 0, right: 0, top: 0, bottom: 0 } 
+          } 
+        } 
+      });
+      
+      onSelectSource(newId);
     }
   };
 
   const handleAddPowerPoint = async () => {
-    alert('Direct PowerPoint (.pptx) rendering is not supported natively in the browser without a server backend.\n\nPlease export your PowerPoint presentation to PDF (File -> Save As -> PDF), and then select the PDF file instead!');
-    // After alerting, just call the PDF handler to let them select the PDF
-    handleAddPdf();
+    const filePath = await (window as any).electronAPI.selectPowerPointFile();
+    if (filePath) {
+      const fileName = filePath.split(/[/\\]/).pop() || 'PowerPoint Presentation';
+      const newId = uuidv4();
+      dispatch({ 
+        type: 'ADD_SOURCE', 
+        payload: { 
+          sceneId: activeScene.id, 
+          source: { 
+            id: newId, 
+            type: 'powerpoint', 
+            name: fileName, 
+            file: filePath, 
+            visible: true, 
+            locked: false, 
+            zIndex: 10, 
+            opacity: 1, 
+            transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, 
+            crop: { left: 0, right: 0, top: 0, bottom: 0 } 
+          } 
+        } 
+      });
+      onSelectSource(newId);
+    }
   };
 
   const handleAddText = () => {
-    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: uuidv4(), type: 'text', name: 'Text', text: 'MY STREAM', fontSize: 72, fontFamily: 'Arial', color: '#ffffff', fontWeight: 'bold', visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 100, y: 100, width: 400, height: 100, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    const newId = uuidv4();
+    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'text', name: 'Text', text: 'MY STREAM', fontSize: 72, fontFamily: 'Arial', color: '#ffffff', fontWeight: 'bold', visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 100, y: 100, width: 400, height: 100, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    onSelectSource(newId);
   };
 
   const toggleVisibility = (source: SceneSource, e: React.MouseEvent) => {

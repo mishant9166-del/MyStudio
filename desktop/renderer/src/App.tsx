@@ -16,13 +16,14 @@ import { MagicEffectsPanel } from './components/effects/MagicEffectsPanel';
 import { GalleryPanel } from './components/gallery/GalleryPanel';
 import { ArrangementPanel } from './components/sidebar/ArrangementPanel';
 import { Controls } from './components/controls/Controls';
+import { SettingsModal } from './components/settings/SettingsModal';
 import { SceneProvider } from './context/SceneContext';
 import { AudioProvider } from './context/AudioContext';
 import { RecordingProvider } from './context/RecordingContext';
 import { StreamingProvider } from './context/StreamingContext';
 import { VirtualCameraProvider } from './context/VirtualCameraContext';
 import { FilterProvider } from './context/FilterContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 function App() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -30,10 +31,19 @@ function App() {
 
 
 
-  let RightPanel = null;
-  if (activeSidebarTab === 'sources') {
-    RightPanel = (
-      <div className="flex flex-col h-full bg-white">
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenMenu = () => {
+      setActiveSidebarTab('sources');
+    };
+    window.addEventListener('open-source-menu', handleOpenMenu);
+    return () => window.removeEventListener('open-source-menu', handleOpenMenu);
+  }, []);
+
+  const RightPanel = (
+    <>
+      <div className={`flex-col h-full bg-white ${activeSidebarTab === 'sources' ? 'flex' : 'hidden'}`}>
         <div className="flex-1 overflow-hidden flex flex-col border-b border-slate-100">
           <SourcePanel selectedSourceId={selectedSourceId} onSelectSource={setSelectedSourceId} />
         </div>
@@ -41,30 +51,20 @@ function App() {
           <PropertiesPanel selectedSourceId={selectedSourceId} />
         </div>
       </div>
-    );
-  } else if (activeSidebarTab === 'settings') {
-    RightPanel = <RecordingSettings onClose={() => setActiveSidebarTab(null)} />;
-  } else if (activeSidebarTab === 'streaming') {
-    RightPanel = <StreamingSettings onClose={() => setActiveSidebarTab(null)} />;
-  } else if (activeSidebarTab === 'presets') {
-    RightPanel = <PresetsPanel />;
-  } else if (activeSidebarTab === 'audio') {
-    RightPanel = <AudioMixer />;
-  } else if (activeSidebarTab === 'effects') {
-    RightPanel = <EffectsPanel />;
-  } else if (activeSidebarTab === 'time') {
-    RightPanel = <TimePanel />;
-  } else if (activeSidebarTab === 'background') {
-    RightPanel = <BackgroundPanel />;
-  } else if (activeSidebarTab === 'lowerthirds') {
-    RightPanel = <LowerThirdsPanel />;
-  } else if (activeSidebarTab === 'magic') {
-    RightPanel = <MagicEffectsPanel />;
-  } else if (activeSidebarTab === 'gallery') {
-    RightPanel = <GalleryPanel />;
-  } else if (activeSidebarTab === 'arrangement') {
-    RightPanel = <ArrangementPanel />;
-  }
+      
+      {activeSidebarTab === 'settings' && <RecordingSettings onClose={() => setActiveSidebarTab(null)} />}
+      {activeSidebarTab === 'streaming' && <StreamingSettings onClose={() => setActiveSidebarTab(null)} />}
+      {activeSidebarTab === 'presets' && <PresetsPanel selectedSourceId={selectedSourceId} onSelectSource={setSelectedSourceId} />}
+      {activeSidebarTab === 'audio' && <AudioMixer />}
+      {activeSidebarTab === 'effects' && <EffectsPanel />}
+      {activeSidebarTab === 'time' && <TimePanel />}
+      {activeSidebarTab === 'background' && <BackgroundPanel />}
+      {activeSidebarTab === 'lowerthirds' && <LowerThirdsPanel />}
+      {activeSidebarTab === 'magic' && <MagicEffectsPanel />}
+      {activeSidebarTab === 'gallery' && <GalleryPanel />}
+      {activeSidebarTab === 'arrangement' && <ArrangementPanel />}
+    </>
+  );
 
   return (
     <VirtualCameraProvider>
@@ -74,14 +74,15 @@ function App() {
             <SceneProvider>
               <FilterProvider>
                 <MainLayout 
-                  header={<Header />}
+                  header={<Header selectedSourceId={selectedSourceId} />}
                   preview={<PreviewArea selectedSourceId={selectedSourceId} onSelectSource={setSelectedSourceId} />}
-                  controls={<Controls />}
+                  controls={<Controls onOpenSettings={() => setIsSettingsModalOpen(true)} />}
                   scenes={<ScenePanel />}
                   rightPanel={RightPanel}
                   activeSidebarTab={activeSidebarTab}
                   onTabChange={setActiveSidebarTab as any}
                 />
+                {isSettingsModalOpen && <SettingsModal onClose={() => setIsSettingsModalOpen(false)} />}
               </FilterProvider>
             </SceneProvider>
           </AudioProvider>

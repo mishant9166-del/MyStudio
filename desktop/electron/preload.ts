@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectDocumentFile: () => ipcRenderer.invoke('document:select'),
   readDocumentFile: (filePath: string) => ipcRenderer.invoke('document:read', filePath),
   readImageFile: (filePath: string) => ipcRenderer.invoke('image:read', filePath),
+  selectPowerPointFile: () => ipcRenderer.invoke('powerpoint:select'),
+  startPowerPoint: (sourceId: string, filePath: string) => ipcRenderer.invoke('powerpoint:start', sourceId, filePath),
+  stopPowerPoint: (sourceId: string) => ipcRenderer.invoke('powerpoint:stop', sourceId),
+  nextPowerPointSlide: (sourceId: string) => ipcRenderer.invoke('powerpoint:next', sourceId),
+  prevPowerPointSlide: (sourceId: string) => ipcRenderer.invoke('powerpoint:prev', sourceId),
 
   // --- Audio IPC ---
   getAudioInputDevices: () => ipcRenderer.invoke('audio:list-inputs'),
