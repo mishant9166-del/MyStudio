@@ -34,17 +34,20 @@ if (!window.electronAPI) {
     startVirtualCamera: async () => true,
     stopVirtualCamera: async () => true,
 
-    startRecording: async () => true,
     stopRecording: async () => {},
     selectRecordingFolder: async () => 'C:\\Mock\\Recordings',
     updateRecordingLayout: async () => {},
 
     saveStreamingSettings: async () => true,
-    loadStreamingSettings: async () => null,
-    startStreaming: async () => true,
+    loadStreamingSettings: async () => ({}),
+
+    getPicturesPath: async () => 'C:\\Users\\MockUser\\Pictures\\MyStudio',
+    selectOutputFolder: async () => 'C:\\Mock\\Output\\Folder',
+    startRecording: async () => true,
     stopStreaming: async () => true,
 
-    updateSourceFilters: async () => true
+    updateSourceFilters: async () => true,
+    saveSnapshot: async () => true
   } as any;
 }
 

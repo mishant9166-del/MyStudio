@@ -53,7 +53,17 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
 
   const handleAddCamera = (device: CameraDevice) => {
     const newId = uuidv4();
-    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'camera', name: device.name, deviceId: device.id, visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
+    let crop = { left: 0, right: 0, top: 0, bottom: 0 };
+    
+    const nameLower = device.name.toLowerCase();
+    const isVirtual = nameLower.includes("manycam") || nameLower.includes("virtual") || nameLower.includes("obs");
+    const flipX = !isVirtual;
+
+    if (nameLower.includes("manycam")) {
+      crop = { left: 0, right: 0, top: 59, bottom: 60 };
+    }
+    
+    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'camera', name: device.name, deviceId: device.id, visible: true, locked: false, zIndex: 0, opacity: 1, flipX, transform: { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }, crop } } });
     onSelectSource(newId);
   };
 
@@ -133,11 +143,7 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
     }
   };
 
-  const handleAddText = () => {
-    const newId = uuidv4();
-    dispatch({ type: 'ADD_SOURCE', payload: { sceneId: activeScene.id, source: { id: newId, type: 'text', name: 'Text', text: 'MY STREAM', fontSize: 72, fontFamily: 'Arial', color: '#ffffff', fontWeight: 'bold', visible: true, locked: false, zIndex: 0, opacity: 1, transform: { x: 100, y: 100, width: 400, height: 100, rotation: 0 }, crop: { left: 0, right: 0, top: 0, bottom: 0 } } } });
-    onSelectSource(newId);
-  };
+
 
   const toggleVisibility = (source: SceneSource, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -160,7 +166,7 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
     dispatch({ type: 'REORDER_SOURCE', payload: { sceneId: activeScene.id, sourceId, direction } });
   };
 
-  const sortedSources = [...activeScene.sources].sort((a, b) => b.zIndex - a.zIndex);
+  const sortedSources = [...activeScene.sources].filter(s => s.type !== 'lower-third').sort((a, b) => b.zIndex - a.zIndex);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -190,12 +196,6 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
       label: 'PDF',
       icon: <FileText className="text-red-500" />,
       onClick: handleAddPdf
-    },
-    {
-      id: 'text',
-      label: 'Text',
-      icon: <Type className="text-purple-500" />,
-      onClick: handleAddText
     },
     {
       id: 'ndi',
@@ -361,3 +361,4 @@ export const SourcePanel = ({ selectedSourceId, onSelectSource }: Props) => {
     </div>
   );
 };
+

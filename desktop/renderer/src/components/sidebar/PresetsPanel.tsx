@@ -150,7 +150,7 @@ export const PresetsPanel = ({ selectedSourceId, onSelectSource }: Props) => {
                   </div>
                   
                   {/* Layers List */}
-                  {[...scene.sources].sort((a, b) => b.zIndex - a.zIndex).map(source => (
+                  {[...scene.sources].filter(s => s.type !== 'lower-third').sort((a, b) => b.zIndex - a.zIndex).map(source => (
                     <div 
                       key={source.id}
                       onClick={(e) => {
@@ -198,3 +198,4 @@ export const PresetsPanel = ({ selectedSourceId, onSelectSource }: Props) => {
     </PanelContainer>
   );
 };
+

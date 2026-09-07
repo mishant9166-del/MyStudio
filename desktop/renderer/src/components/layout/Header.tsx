@@ -6,7 +6,7 @@ const SmoothSlider = ({ value, min, max, onChange, className, style }: any) => {
   const [localValue, setLocalValue] = useState(value);
   const lastChangeTime = useRef<number>(0);
   const lastDispatched = useRef<number>(value);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Only accept incoming value from props if the user hasn't dragged in the last 200ms
@@ -50,9 +50,9 @@ const SmoothSlider = ({ value, min, max, onChange, className, style }: any) => {
   );
 };
 
-export function Header({ selectedSourceId }: { selectedSourceId?: string | null }) {
+export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: { selectedSourceId?: string | null, onOpenAuth?: (mode: 'login' | 'signup') => void, user?: { name: string } | null, onOpenSettings?: (tab?: string) => void }) {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<number | null>(null);
   const { state, dispatch } = useScenes();
 
   const activeScene = state.scenes.find(s => s.id === state.activeSceneId);
@@ -365,7 +365,7 @@ export function Header({ selectedSourceId }: { selectedSourceId?: string | null 
           onMouseLeave={handleMouseLeave}
         >
           <div style={{ WebkitAppRegion: 'no-drag' } as any} className="flex items-center cursor-pointer hover:bg-slate-50 h-full px-2">
-            <span className="font-bold text-slate-500 text-xs">30 <span className="font-normal text-slate-400">fps</span></span>
+            <span className="font-bold text-slate-500 text-xs">{state.fps || 30} <span className="font-normal text-slate-400">fps</span></span>
           </div>
           {activeDropdown === 'fps' && (
             <div className="absolute top-full left-1/2 -translate-x-1/2 w-16 z-50" style={{ WebkitAppRegion: 'no-drag' } as any}>
@@ -373,7 +373,11 @@ export function Header({ selectedSourceId }: { selectedSourceId?: string | null 
                 <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#2c3439] border-t border-l border-slate-700 transform rotate-45"></div>
                 <div className="relative z-10">
                   {[5, 10, 15, 20, 25, 30, 60].map(fps => (
-                    <div key={fps} className="py-1.5 hover:bg-[#404b53] cursor-pointer text-slate-300 hover:text-white transition-colors">{fps}</div>
+                    <div 
+                      key={fps} 
+                      onClick={() => dispatch({ type: 'SET_FPS', payload: { fps } })}
+                      className={`py-1.5 hover:bg-[#404b53] cursor-pointer transition-colors ${state.fps === fps ? 'text-white bg-[#404b53]' : 'text-slate-300 hover:text-white'}`}
+                    >{fps}</div>
                   ))}
                 </div>
               </div>
@@ -388,15 +392,23 @@ export function Header({ selectedSourceId }: { selectedSourceId?: string | null 
           onMouseLeave={handleMouseLeave}
         >
           <div style={{ WebkitAppRegion: 'no-drag' } as any} className="flex items-center cursor-pointer hover:bg-slate-50 h-full px-2">
-            <span className="font-bold text-slate-500 text-xs">720<span className="font-normal text-slate-400">p</span></span>
+            <span className="font-bold text-slate-500 text-xs">{state.resolution ? state.resolution.replace('p', '') : '720'}<span className="font-normal text-slate-400">p</span></span>
           </div>
           {activeDropdown === 'res' && (
             <div className="absolute top-full left-1/2 -translate-x-1/2 w-24 z-50" style={{ WebkitAppRegion: 'no-drag' } as any}>
               <div className="bg-[#2c3439] text-white rounded shadow-xl border border-slate-700 py-1 relative text-center text-xs">
                 <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#2c3439] border-t border-l border-slate-700 transform rotate-45"></div>
-                <div className="relative z-10">
-                  {['240p', '360p', '480p', '720p', 'Customize...'].map(res => (
-                    <div key={res} className="py-1.5 hover:bg-[#404b53] cursor-pointer text-slate-300 hover:text-white transition-colors">{res}</div>
+                <div className="relative z-10 max-h-48 overflow-y-auto custom-scrollbar">
+                  {['288p', '384p', '360p', '480p', '600p', '768p', '720p', '1080p', 'Customize...'].map(res => (
+                    <div 
+                      key={res} 
+                      onClick={() => {
+                        if (res !== 'Customize...') {
+                          dispatch({ type: 'SET_RESOLUTION', payload: { resolution: res } });
+                        }
+                      }}
+                      className={`py-1.5 hover:bg-[#404b53] cursor-pointer transition-colors ${state.resolution === res ? 'text-white bg-[#404b53]' : 'text-slate-300 hover:text-white'}`}
+                    >{res}</div>
                   ))}
                 </div>
               </div>
@@ -405,13 +417,37 @@ export function Header({ selectedSourceId }: { selectedSourceId?: string | null 
         </div>
 
         {/* Profile */}
-        <div className="flex items-center px-5 h-full mr-[140px]">
-          <div className="relative mr-2.5">
-            <svg className="w-5 h-5 text-slate-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd" /></svg>
-            <div className="absolute top-0 right-0 w-[9px] h-[9px] bg-[#10b981] border-[1.5px] border-white rounded-full translate-x-0.5 -translate-y-0.5"></div>
+        <button 
+          onClick={() => {
+            if (!user) onOpenAuth?.('login');
+            else onOpenSettings?.('account');
+          }}
+          className={`flex items-center px-5 h-full mr-[140px] transition-colors hover:bg-slate-50 cursor-pointer`}
+          style={{ WebkitAppRegion: 'no-drag' } as any}
+        >
+          <div className="relative mr-2.5 flex items-center justify-center">
+            {user ? (
+              <div className={`w-[22px] h-[22px] rounded-full bg-gradient-to-br ${
+                [
+                  'from-[#20c0f3] to-[#00d084]', // Cyan to Green
+                  'from-red-400 to-red-600',      // Red
+                  'from-amber-400 to-orange-500', // Amber to Orange
+                  'from-violet-400 to-purple-500',// Violet to Purple
+                  'from-blue-400 to-indigo-500',  // Blue to Indigo
+                  'from-emerald-400 to-teal-500'  // Emerald to Teal
+                ][(user.name.charCodeAt(0) || 0) % 6]
+              } text-white flex items-center justify-center text-[12px] font-bold shadow-sm`}>
+                {user.name.charAt(0).toUpperCase()}
+              </div>
+            ) : (
+              <svg className="w-5 h-5 text-slate-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd" /></svg>
+            )}
+            {user && <div className="absolute -top-0.5 -right-0.5 w-[9px] h-[9px] bg-[#10b981] border-[1.5px] border-white rounded-full z-10"></div>}
           </div>
-          <span className="text-[11px] font-medium text-slate-400 tracking-[0.02em]">E TECHRISE INFRAS</span>
-        </div>
+          <span className={`text-[11px] font-medium tracking-[0.02em] uppercase ${user ? 'text-slate-600' : 'text-slate-400'}`}>
+            {user ? user.name : 'Sign In'}
+          </span>
+        </button>
       </div>
     </>
   );
