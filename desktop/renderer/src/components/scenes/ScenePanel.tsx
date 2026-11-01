@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Plus, ChevronRight, ChevronLeft, Layers, Trash2, Camera, Monitor, FileText, Image as ImageIcon } from 'lucide-react';
 import { useScenes } from '../../context/SceneContext';
-import type { Scene } from '../../../../shared/types';
+import type { Scene } from '../../../../../shared/types';
 import { getPdfPageAsCanvas } from '../../services/pdfService';
 
 const LiveThumbnail = () => {

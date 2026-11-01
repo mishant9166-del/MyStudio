@@ -12,7 +12,9 @@ type Action =
   | { type: 'ADD_SOURCE'; payload: { sceneId: string, source: SceneSource } }
   | { type: 'UPDATE_SOURCE'; payload: { sceneId: string, sourceId: string, updates: Partial<SceneSource> } }
   | { type: 'REMOVE_SOURCE'; payload: { sceneId: string, sourceId: string } }
-  | { type: 'REORDER_SOURCE'; payload: { sceneId: string, sourceId: string, direction: 'up' | 'down' | 'top' | 'bottom' } };
+  | { type: 'REORDER_SOURCE'; payload: { sceneId: string, sourceId: string, direction: 'up' | 'down' | 'top' | 'bottom' } }
+  | { type: 'SET_RESOLUTION'; payload: { resolution: string } }
+  | { type: 'SET_FPS'; payload: { fps: number } };
 
 const generateDefaultScene = (): Scene => ({
   id: uuidv4(),
@@ -51,13 +53,19 @@ const generateDefaultScene = (): Scene => ({
 
 const defaultState: AppState = {
   scenes: [],
-  activeSceneId: null
+  activeSceneId: null,
+  resolution: '720p',
+  fps: 30
 };
 
 const reducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
+    case 'SET_RESOLUTION':
+      return { ...state, resolution: action.payload.resolution };
+    case 'SET_FPS':
+      return { ...state, fps: action.payload.fps };
     case 'INIT_STATE':
-      return action.payload;
+      return { ...defaultState, ...action.payload };
     
     case 'ADD_SCENE': {
       const newScene: Scene = { id: uuidv4(), name: action.payload.name, sources: [] };
@@ -177,7 +185,7 @@ export const SceneProvider = ({ children }: { children: ReactNode }) => {
     const gamingScene = generateDefaultScene();
     dispatch({ 
       type: 'INIT_STATE', 
-      payload: { scenes: [gamingScene], activeSceneId: gamingScene.id }
+      payload: { ...defaultState, scenes: [gamingScene], activeSceneId: gamingScene.id }
     });
   }, []);
 

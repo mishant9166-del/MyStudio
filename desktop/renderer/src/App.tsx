@@ -17,6 +17,7 @@ import { GalleryPanel } from './components/gallery/GalleryPanel';
 import { ArrangementPanel } from './components/sidebar/ArrangementPanel';
 import { Controls } from './components/controls/Controls';
 import { SettingsModal } from './components/settings/SettingsModal';
+import { AuthModal } from './components/auth/AuthModal';
 import { SceneProvider } from './context/SceneContext';
 import { AudioProvider } from './context/AudioContext';
 import { RecordingProvider } from './context/RecordingContext';
@@ -32,6 +33,24 @@ function App() {
 
 
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('general');
+  const [authModalConfig, setAuthModalConfig] = useState<{ isOpen: boolean, mode: 'login' | 'signup' }>({ isOpen: false, mode: 'login' });
+  const [user, setUser] = useState<{ name: string, email?: string, phone?: string, user_id?: string } | null>(() => {
+    const stored = localStorage.getItem('mystudio_user');
+    if (stored) {
+      try { return JSON.parse(stored); } catch (e) { return null; }
+    }
+    return null;
+  });
+
+  const handleSetUser = (newUser: { name: string, email?: string, phone?: string, user_id?: string } | null) => {
+    setUser(newUser);
+    if (newUser) {
+      localStorage.setItem('mystudio_user', JSON.stringify(newUser));
+    } else {
+      localStorage.removeItem('mystudio_user');
+    }
+  };
 
   useEffect(() => {
     const handleOpenMenu = () => {
@@ -74,15 +93,46 @@ function App() {
             <SceneProvider>
               <FilterProvider>
                 <MainLayout 
-                  header={<Header selectedSourceId={selectedSourceId} />}
+                  header={<Header 
+                    selectedSourceId={selectedSourceId} 
+                    user={user}
+                    onOpenAuth={(mode) => {
+                      setIsSettingsModalOpen(false);
+                      setAuthModalConfig({ isOpen: true, mode });
+                    }} 
+                    onOpenSettings={(tab) => {
+                      setSettingsTab(tab || 'general');
+                      setIsSettingsModalOpen(true);
+                    }}
+                  />}
                   preview={<PreviewArea selectedSourceId={selectedSourceId} onSelectSource={setSelectedSourceId} />}
-                  controls={<Controls onOpenSettings={() => setIsSettingsModalOpen(true)} />}
+                  controls={<Controls onOpenSettings={() => {
+                    setSettingsTab('general');
+                    setIsSettingsModalOpen(true);
+                  }} />}
                   scenes={<ScenePanel />}
                   rightPanel={RightPanel}
                   activeSidebarTab={activeSidebarTab}
                   onTabChange={setActiveSidebarTab as any}
                 />
-                {isSettingsModalOpen && <SettingsModal onClose={() => setIsSettingsModalOpen(false)} />}
+                {isSettingsModalOpen && <SettingsModal 
+                  initialTab={settingsTab}
+                  user={user}
+                  onSuccess={handleSetUser}
+                  onClose={() => setIsSettingsModalOpen(false)} 
+                  onOpenAuth={(mode) => {
+                    setIsSettingsModalOpen(false);
+                    setAuthModalConfig({ isOpen: true, mode });
+                  }}
+                />}
+                {authModalConfig.isOpen && <AuthModal 
+                  initialMode={authModalConfig.mode} 
+                  onSuccess={(newUser) => {
+                    handleSetUser(newUser);
+                    setAuthModalConfig({ ...authModalConfig, isOpen: false });
+                  }}
+                  onClose={() => setAuthModalConfig({ ...authModalConfig, isOpen: false })} 
+                />}
               </FilterProvider>
             </SceneProvider>
           </AudioProvider>

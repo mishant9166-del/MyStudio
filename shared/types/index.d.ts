@@ -32,7 +32,7 @@ export interface Crop {
 // --------------------------------------------------------
 // SOURCES
 // --------------------------------------------------------
-export type SourceType = 'camera' | 'screen' | 'image' | 'text' | 'pdf' | 'powerpoint';
+export type SourceType = 'camera' | 'screen' | 'image' | 'text' | 'pdf' | 'powerpoint' | 'lower-third';
 
 export interface BaseSource {
   id: string;
@@ -87,7 +87,65 @@ export interface TextSource extends BaseSource {
   fontWeight: string;
 }
 
-export type SceneSource = CameraSource | ScreenSource | ImageSource | TextSource | PdfSource | PowerPointSource;
+export interface LowerThirdSource extends BaseSource {
+  type: 'lower-third';
+  title: string;
+  subtitle: string;
+  theme: string;
+  
+  // Advanced Design Properties
+  colors?: {
+    background: string;
+    backgroundStyle: 'solid' | 'gradient' | 'transparent';
+    gradient?: string;
+    title: string;
+    subtitle: string;
+    accent: string;
+    border: string;
+  };
+  
+  fonts?: {
+    family: string;
+    titleSize: number;
+    subtitleSize: number;
+    weight: 'regular' | 'medium' | 'semibold' | 'bold';
+    alignment: 'left' | 'center' | 'right';
+  };
+  
+  // Logo & Icon
+  logo?: {
+    enabled: boolean;
+    url: string;
+    position: 'left' | 'right' | 'top' | 'bottom';
+  };
+  
+  icon?: {
+    enabled: boolean;
+    name: string;
+  };
+  
+  // Animation
+  animation?: {
+    entrance: 'none' | 'fade' | 'slideLeft' | 'slideRight' | 'slideUp' | 'slideDown' | 'zoomIn' | 'bounce';
+    exit: 'none' | 'fade' | 'slideLeft' | 'slideRight' | 'slideUp' | 'slideDown' | 'zoomOut';
+    duration: number; // in seconds
+  };
+  
+  // Timing
+  timing?: {
+    displayMode: 'manual' | 'auto';
+    autoHideDuration: number;
+    fadeInDuration: number;
+    displayDuration: number;
+    fadeOutDuration: number;
+  };
+  
+  // Show state (different from visible, which indicates if it exists in the scene tree)
+  // `visible` comes from BaseSource, so we can use `isShowing` for the trigger state
+  isShowing?: boolean;
+}
+
+export type SceneSource = CameraSource | ScreenSource | ImageSource | TextSource | PdfSource | PowerPointSource | LowerThirdSource;
 
 // --------------------------------------------------------
 // SCENES
@@ -101,6 +159,8 @@ export interface Scene {
 export interface AppState {
   scenes: Scene[];
   activeSceneId: string | null;
+  resolution: string; // e.g. '720p' or '1080p'
+  fps: number; // e.g. 30, 60
 }
 
 // --------------------------------------------------------

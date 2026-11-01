@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ----------------------------------------------------
   // RECORDING
   // ----------------------------------------------------
+  getPicturesPath: () => ipcRenderer.invoke('app:get-pictures-path'),
   selectOutputFolder: () => ipcRenderer.invoke('recording:select-folder'),
   startRecording: (path: string, settings: any) => ipcRenderer.invoke('recording:start', path, settings),
   stopRecording: () => ipcRenderer.invoke('recording:stop'),
@@ -81,4 +82,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // FILTERS
   // ----------------------------------------------------
   updateSourceFilters: (sourceId: string, filters: any[]) => ipcRenderer.invoke('filters:update', sourceId, filters),
+
+  // ----------------------------------------------------
+  saveSnapshot: (dataUrl: string, folderPath: string, prefix: string, copyPaths: string[]) => ipcRenderer.invoke('app:save-snapshot', dataUrl, folderPath, prefix, copyPaths),
+  listSnapshots: (folderPath: string, prefix: string) => ipcRenderer.invoke('app:list-snapshots', folderPath, prefix),
+  deleteSnapshot: (filePath: string) => ipcRenderer.invoke('app:delete-snapshot', filePath),
+  renameSnapshot: (oldPath: string, newName: string) => ipcRenderer.invoke('app:rename-snapshot', oldPath, newName),
 });

@@ -1,5 +1,5 @@
-import React, { ReactNode } from 'react';
-import { ChevronDown, Plus, X } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ChevronDown, Plus } from 'lucide-react';
 
 export const PanelContainer = ({ children, title, onAdd }: { children: ReactNode, title?: string, onAdd?: () => void }) => (
   <div className="flex flex-col h-full bg-white font-sans text-[13px] text-slate-600">

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScenes } from '../../context/SceneContext';
+import { drawLowerThird } from '../effects/LowerThirdRenderer';
 
 import { getPdfPageAsCanvas, hasPdfCached } from '../../services/pdfService';
 
@@ -27,6 +28,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
   const [isPdfHovered, setIsPdfHovered] = useState(false);
   const [playingSources, setPlayingSources] = useState<Set<string>>(new Set());
   const [canvasLayout, setCanvasLayout] = useState({ scale: 1, offsetX: 0, offsetY: 0 });
+  const [isShutterAnimating, setIsShutterAnimating] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, sourceX: 0, sourceY: 0, sourceWidth: 0, sourceHeight: 0 });
 
   // Track canvas layout for overlay positioning
@@ -58,6 +60,16 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
       observer.disconnect();
       canvas.removeEventListener('wheel', handleNativeWheel);
     };
+  }, []);
+
+  // Handle shutter animation event from Controls
+  useEffect(() => {
+    const handleShutter = () => {
+      setIsShutterAnimating(true);
+      setTimeout(() => setIsShutterAnimating(false), 300); // 300ms matches the CSS animation duration
+    };
+    window.addEventListener('play-shutter-animation', handleShutter);
+    return () => window.removeEventListener('play-shutter-animation', handleShutter);
   }, []);
 
   // Auto-advance playing sources
@@ -279,7 +291,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
       ctx.rect(0, 0, 1920, 1080);
       ctx.clip();
 
-      const sortedSources = [...activeScene.sources].sort((a, b) => a.zIndex - b.zIndex);
+      const sortedSources = [...activeScene.sources].sort((a, b) => a.type === 'lower-third' && b.type !== 'lower-third' ? 1 : (a.type !== 'lower-third' && b.type === 'lower-third' ? -1 : a.zIndex - b.zIndex));
 
       sortedSources.forEach(source => {
         if (!source.visible) return;
@@ -433,6 +445,9 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
           ctx.textBaseline = 'top';
           ctx.fillText(source.text, x, y);
         }
+        else if (source.type === 'lower-third') {
+          drawLowerThird(ctx, source as any, x, y, w, h);
+        }
 
         ctx.restore();
       });
@@ -442,7 +457,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
       // Phase 2: Draw UI Overlays (Handles)
       if (selectedSourceId) {
         const selectedSource = activeScene.sources.find(s => s.id === selectedSourceId);
-        if (selectedSource && selectedSource.visible && !selectedSource.locked) {
+        if (selectedSource && selectedSource.visible && !selectedSource.locked && selectedSource.type !== 'lower-third') {
           ctx.save();
           
           const cx = selectedSource.transform.x + selectedSource.transform.width / 2;
@@ -547,9 +562,9 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
       }
     }
 
-    const sortedSources = [...activeScene.sources].sort((a, b) => b.zIndex - a.zIndex);
+    const sortedSources = [...activeScene.sources].sort((a, b) => b.type === 'lower-third' && a.type !== 'lower-third' ? 1 : (b.type !== 'lower-third' && a.type === 'lower-third' ? -1 : b.zIndex - a.zIndex));
     const clicked = sortedSources.find(s => 
-      s.visible && 
+      s.visible && s.type !== 'lower-third' && 
       x >= s.transform.x && x <= s.transform.x + s.transform.width &&
       y >= s.transform.y && y <= s.transform.y + s.transform.height
     );
@@ -718,7 +733,7 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const sortedSources = [...activeScene.sources].sort((a, b) => b.zIndex - a.zIndex);
+    const sortedSources = [...activeScene.sources].sort((a, b) => b.type === 'lower-third' && a.type !== 'lower-third' ? 1 : (b.type !== 'lower-third' && a.type === 'lower-third' ? -1 : b.zIndex - a.zIndex));
     
     for (const source of sortedSources) {
       if (!source.visible || source.locked) continue;
@@ -876,6 +891,42 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
         onDoubleClick={handleDoubleClick}
       />
       
+      {/* Shutter Animation Overlay - Perfectly bound to the video letterbox area */}
+      {isShutterAnimating && (() => {
+        const videoWidth = 1920 * canvasLayout.scale;
+        const videoHeight = 1080 * canvasLayout.scale;
+        const diagonal = Math.sqrt(videoWidth * videoWidth + videoHeight * videoHeight);
+        
+        return (
+          <div 
+            className="absolute pointer-events-none z-[9999] overflow-hidden flex items-center justify-center"
+            style={{
+              left: canvasLayout.offsetX,
+              top: canvasLayout.offsetY,
+              width: videoWidth,
+              height: videoHeight,
+            }}
+          >
+            <style>{`
+              @keyframes shutter-circle {
+                0% { width: ${diagonal}px; height: ${diagonal}px; border-radius: 15%; transform: rotate(0deg); }
+                50% { width: 0px; height: 0px; border-radius: 50%; transform: rotate(90deg); }
+                100% { width: ${diagonal}px; height: ${diagonal}px; border-radius: 15%; transform: rotate(180deg); }
+              }
+              .animate-shutter-circle {
+                animation: shutter-circle 300ms ease-in-out forwards;
+              }
+            `}</style>
+            <div 
+              className="animate-shutter-circle pointer-events-none"
+              style={{
+                boxShadow: '0 0 0 4000px #000000',
+              }}
+            />
+          </div>
+        );
+      })()}
+      
       {/* PDF Floating Overlay */}
       {selectedSource && selectedSource.type === 'pdf' && isPdfHovered && (() => {
         const { scale, offsetX, offsetY } = canvasLayout;
@@ -986,3 +1037,5 @@ export const PreviewArea = ({ selectedSourceId, onSelectSource }: Props) => {
     </div>
   );
 };
+
+

@@ -23,6 +23,7 @@ interface ContextMenuProps {
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose, className = '' }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeSubmenu, setActiveSubmenu] = useState<{ id: string, rect: DOMRect } | null>(null);
+  const hoverTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -42,6 +43,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose, 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
     };
   }, [onClose]);
 
@@ -99,8 +101,16 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose, 
           <div
             key={item.id}
             className="relative"
-            onMouseEnter={(e) => setActiveSubmenu({ id: item.id, rect: e.currentTarget.getBoundingClientRect() })}
-            onMouseLeave={() => setActiveSubmenu(null)}
+            onMouseEnter={(e) => {
+              if (hoverTimer.current) clearTimeout(hoverTimer.current);
+              setActiveSubmenu({ id: item.id, rect: e.currentTarget.getBoundingClientRect() });
+            }}
+            onMouseLeave={() => {
+              if (hoverTimer.current) clearTimeout(hoverTimer.current);
+              hoverTimer.current = window.setTimeout(() => {
+                setActiveSubmenu(null);
+              }, 300);
+            }}
           >
             <button
               onClick={(e) => {
@@ -130,7 +140,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose, 
             {hasSubmenu && isActive && activeSubmenu && (
               <div 
                 className="fixed z-[10000]"
-                style={{ left: activeSubmenu.rect.right + 2, top: activeSubmenu.rect.top }}
+                style={{ left: activeSubmenu.rect.right - 2, top: activeSubmenu.rect.top }}
+                onMouseEnter={() => {
+                  if (hoverTimer.current) clearTimeout(hoverTimer.current);
+                }}
               >
                 <ContextMenu
                   x={0}

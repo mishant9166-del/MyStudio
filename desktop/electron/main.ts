@@ -30,6 +30,28 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // Handle reload shortcut (Ctrl+R)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.control && input.key.toLowerCase() === 'r') {
+      mainWindow.webContents.reload();
+      event.preventDefault();
+    }
+  });
+
+  // Handle hot-reloads and page navigation safely
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (nativeEngine) {
+      try {
+        if (activeCameras.size > 0) nativeEngine.stopCamera();
+        if (activeScreens.size > 0) nativeEngine.stopScreen();
+      } catch (e) {
+        console.error("Error stopping native engine on reload:", e);
+      }
+    }
+    activeCameras.clear();
+    activeScreens.clear();
+  });
 }
 
 app.whenReady().then(() => {
@@ -84,6 +106,11 @@ const activeScreens = new Map<string, Set<string>>(); // displayId -> set of sou
 ipcMain.handle('camera:start', async (event, deviceId: string, sourceId: string) => {
   if (!nativeEngine) throw new Error('Native engine not loaded');
   
+  if (stopCameraTimeouts.has(deviceId)) {
+    clearTimeout(stopCameraTimeouts.get(deviceId)!);
+    stopCameraTimeouts.delete(deviceId);
+  }
+
   if (!activeCameras.has(deviceId)) {
     activeCameras.set(deviceId, new Set([sourceId]));
     
@@ -105,6 +132,8 @@ ipcMain.handle('camera:start', async (event, deviceId: string, sourceId: string)
   return true;
 });
 
+const stopCameraTimeouts = new Map<string, NodeJS.Timeout>();
+
 ipcMain.handle('camera:stop', async (event, sourceId: string) => {
   if (!nativeEngine) return;
   // Find which camera this source belongs to
@@ -112,19 +141,32 @@ ipcMain.handle('camera:stop', async (event, sourceId: string) => {
     if (sources.has(sourceId)) {
       sources.delete(sourceId);
       if (sources.size === 0) {
-        nativeEngine.stopCamera();
-        activeCameras.delete(deviceId);
+        // Delay stopping the hardware to prevent thrashing during scene switching
+        const timeout = setTimeout(() => {
+          if (activeCameras.has(deviceId) && activeCameras.get(deviceId)!.size === 0) {
+            try { nativeEngine.stopCamera(); } catch(e) {}
+            activeCameras.delete(deviceId);
+          }
+          stopCameraTimeouts.delete(deviceId);
+        }, 1500);
+        stopCameraTimeouts.set(deviceId, timeout);
       }
       break;
     }
   }
 });
 
+const stopScreenTimeouts = new Map<string, NodeJS.Timeout>();
+
 ipcMain.handle('display:start', async (event, displayId: string, sourceId: string) => {
   if (!nativeEngine) throw new Error('Native engine not loaded');
   
   if (!activeScreens.has(displayId)) {
     activeScreens.set(displayId, new Set([sourceId]));
+    if (stopScreenTimeouts.has(displayId)) {
+      clearTimeout(stopScreenTimeouts.get(displayId)!);
+      stopScreenTimeouts.delete(displayId);
+    }
     
     nativeEngine.startScreen(displayId, (frameBuffer: Buffer, width: number, height: number) => {
       const sources = activeScreens.get(displayId);
@@ -146,8 +188,14 @@ ipcMain.handle('display:stop', async (event, sourceId: string) => {
     if (sources.has(sourceId)) {
       sources.delete(sourceId);
       if (sources.size === 0) {
-        nativeEngine.stopScreen();
-        activeScreens.delete(displayId);
+        const timeout = setTimeout(() => {
+          if (activeScreens.has(displayId) && activeScreens.get(displayId)!.size === 0) {
+            try { nativeEngine.stopScreen(); } catch(e) {}
+            activeScreens.delete(displayId);
+          }
+          stopScreenTimeouts.delete(displayId);
+        }, 1500);
+        stopScreenTimeouts.set(displayId, timeout);
       }
       break;
     }
@@ -358,6 +406,19 @@ app.whenReady().then(() => {
 // RECORDING IPC HANDLERS
 // --------------------------------------------------------
 
+ipcMain.handle('app:get-pictures-path', () => {
+  try {
+    const picturesPath = app.getPath('pictures');
+    const myStudioPath = path.join(picturesPath, 'MyStudio');
+    if (!fs.existsSync(myStudioPath)) {
+      fs.mkdirSync(myStudioPath, { recursive: true });
+    }
+    return myStudioPath;
+  } catch (e) {
+    return 'C:\\Pictures\\MyStudio';
+  }
+});
+
 ipcMain.handle('recording:select-folder', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory', 'createDirectory']
@@ -519,4 +580,120 @@ ipcMain.handle('filters:update', async (event, sourceId: string, filters: any[])
     return nativeEngine.updateSourceFilters(sourceId, filters);
   }
   return false;
+});
+
+// --------------------------------------------------------
+// SNAPSHOTS
+// --------------------------------------------------------
+ipcMain.handle('app:save-snapshot', async (event, dataUrl: string, folderPath: string, prefix: string, copyPaths: string[] = []) => {
+  try {
+    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true });
+    }
+
+    let maxCount = 0;
+    const pathsToCheck = [folderPath, ...(copyPaths || [])];
+    
+    for (const dirPath of pathsToCheck) {
+      if (!fs.existsSync(dirPath)) continue;
+      try {
+        const files = fs.readdirSync(dirPath);
+        const prefixLower = prefix.toLowerCase();
+        for (const file of files) {
+          const fileLower = file.toLowerCase();
+          if (fileLower.startsWith(prefixLower) && fileLower.endsWith('.png')) {
+            const remainder = fileLower.substring(prefixLower.length, fileLower.length - 4);
+            if (remainder.startsWith(' ') && /^\d+$/.test(remainder.substring(1))) {
+              const num = parseInt(remainder.substring(1), 10);
+              if (num > maxCount) maxCount = num;
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to read snapshot directory:", dirPath, e);
+      }
+    }
+    
+    const fileName = `${prefix} ${maxCount + 1}.png`;
+    const mainFilePath = path.join(folderPath, fileName);
+    fs.writeFileSync(mainFilePath, buffer);
+
+    if (copyPaths && copyPaths.length > 0) {
+      for (const copyPath of copyPaths) {
+        if (!fs.existsSync(copyPath)) {
+          fs.mkdirSync(copyPath, { recursive: true });
+        }
+        const copyFilePath = path.join(copyPath, fileName);
+        fs.writeFileSync(copyFilePath, buffer);
+      }
+    }
+    return fileName;
+  } catch (err) {
+    console.error("Failed to save snapshot:", err);
+    return false;
+  }
+});
+
+ipcMain.handle('app:list-snapshots', async (event, folderPath: string, prefix: string) => {
+  try {
+    if (!fs.existsSync(folderPath)) {
+      return [];
+    }
+
+    const files = fs.readdirSync(folderPath);
+    const snapshots = files
+      .filter(file => {
+        const fileLower = file.toLowerCase();
+        // Snapshots from this app are always saved as "<Prefix> <Number>.png"
+        return fileLower.endsWith('.png') && / \d+\.png$/.test(fileLower);
+      })
+      .map(file => {
+        const filePath = path.join(folderPath, file);
+        const stats = fs.statSync(filePath);
+        return {
+          name: file,
+          path: filePath,
+          mtimeMs: stats.mtimeMs
+        };
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs) // newest first
+      .map(({ name, path }) => ({ name, path }));
+
+    return snapshots;
+  } catch (err) {
+    console.error("Failed to list snapshots:", err);
+    return [];
+  }
+});
+
+ipcMain.handle('app:delete-snapshot', async (event, filePath: string) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return true;
+    }
+  } catch(e) {
+    console.error("Failed to delete snapshot:", e);
+  }
+  return false;
+});
+
+ipcMain.handle('app:rename-snapshot', async (event, oldPath: string, newName: string) => {
+  try {
+    if (fs.existsSync(oldPath)) {
+      const folderPath = path.dirname(oldPath);
+      if (!newName.toLowerCase().endsWith('.png')) {
+         newName += '.png';
+      }
+      const newPath = path.join(folderPath, newName);
+      fs.renameSync(oldPath, newPath);
+      return { success: true, newPath, newName };
+    }
+  } catch(e) {
+    console.error("Failed to rename snapshot:", e);
+  }
+  return { success: false };
 });
