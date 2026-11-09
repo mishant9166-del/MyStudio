@@ -50,6 +50,12 @@ const SmoothSlider = ({ value, min, max, onChange, className, style }: any) => {
   );
 };
 
+const isMac = typeof window !== 'undefined' && (
+  (window.electronAPI?.platform === 'darwin') || 
+  navigator.platform?.toUpperCase().includes('MAC') || 
+  navigator.userAgent?.includes('Mac')
+);
+
 export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: { selectedSourceId?: string | null, onOpenAuth?: (mode: 'login' | 'signup') => void, user?: { name: string } | null, onOpenSettings?: (tab?: string) => void }) {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -68,6 +74,25 @@ export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: {
       setActiveDropdown(null);
     }, 250);
   };
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (window.electronAPI?.isFullScreen) {
+      window.electronAPI.isFullScreen().then(setIsFullscreen);
+    }
+    if (window.electronAPI?.onFullscreenChange) {
+      window.electronAPI.onFullscreenChange(setIsFullscreen);
+    }
+
+    const handleResize = () => {
+      if (window.electronAPI?.isFullScreen) {
+        window.electronAPI.isFullScreen().then(setIsFullscreen);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -116,7 +141,7 @@ export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: {
 
   return (
     <>
-      <div className="flex items-center h-full relative">
+      <div className={`flex items-center h-full relative transition-[padding] duration-150 ${isMac && !isFullscreen ? 'pl-[78px]' : 'pl-0'}`}>
         <div 
           className="relative h-full flex items-center"
           onMouseEnter={() => handleMouseEnter('main-menu')}
@@ -124,7 +149,7 @@ export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: {
         >
           <button 
             style={{ WebkitAppRegion: 'no-drag' } as any}
-            className={`px-4 h-full flex items-center justify-center transition-colors ${activeDropdown === 'main-menu' ? 'bg-slate-50 text-slate-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
+            className={`px-3.5 h-full flex items-center justify-center transition-colors ${activeDropdown === 'main-menu' ? 'bg-slate-50 text-slate-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
@@ -143,8 +168,8 @@ export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: {
           </Dropdown>
         </div>
         
-        <div className="flex items-center pl-0 pr-4">
-          <span className="text-[16px] font-bold text-slate-600 tracking-tight flex items-center">
+        <div className="flex items-center pl-0.5 pr-4 select-none">
+          <span className="text-[15px] font-bold text-slate-700 tracking-tight flex items-center">
              MYSTUDIO
           </span>
         </div>
@@ -422,7 +447,7 @@ export function Header({ selectedSourceId, onOpenAuth, user, onOpenSettings }: {
             if (!user) onOpenAuth?.('login');
             else onOpenSettings?.('account');
           }}
-          className={`flex items-center px-5 h-full mr-[140px] transition-colors hover:bg-slate-50 cursor-pointer`}
+          className={`flex items-center px-4 h-full ${isMac ? 'mr-2' : 'mr-[140px]'} transition-colors hover:bg-slate-50 cursor-pointer`}
           style={{ WebkitAppRegion: 'no-drag' } as any}
         >
           <div className="relative mr-2.5 flex items-center justify-center">

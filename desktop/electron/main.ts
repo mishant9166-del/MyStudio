@@ -1,19 +1,25 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'path';
 import { exec } from 'child_process';
 
 const isDev = process.env.NODE_ENV === 'development';
+const isMac = process.platform === 'darwin';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 720,
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#ffffff',
-      symbolColor: '#64748b',
-      height: 32
-    },
+    ...(isMac ? {
+      trafficLightPosition: { x: 16, y: 14 },
+    } : {}),
+    ...(process.platform === 'win32' ? {
+      titleBarOverlay: {
+        color: '#ffffff',
+        symbolColor: '#64748b',
+        height: 32
+      }
+    } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -25,18 +31,33 @@ function createWindow() {
   mainWindow.setMenu(null);
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    const loadDevServer = () => {
+      mainWindow.loadURL('http://localhost:3000').catch(() => {
+        setTimeout(loadDevServer, 500);
+      });
+    };
+    loadDevServer();
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  // Handle reload shortcut (Ctrl+R)
+  // Handle reload shortcut (Ctrl+R on Windows / Cmd+R on Mac)
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.control && input.key.toLowerCase() === 'r') {
+    const isCmdOrCtrl = isMac ? input.meta : input.control;
+    if (isCmdOrCtrl && input.key.toLowerCase() === 'r') {
       mainWindow.webContents.reload();
       event.preventDefault();
     }
+  });
+
+  // Track fullscreen changes to notify renderer
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-change', true);
+  });
+
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-change', false);
   });
 
   // Handle hot-reloads and page navigation safely
@@ -89,22 +110,51 @@ try {
 }
 
 // IPC Handlers
+ipcMain.handle('window:toggle-fullscreen', () => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (win) {
+    const nextState = !win.isFullScreen();
+    win.setFullScreen(nextState);
+    return nextState;
+  }
+  return false;
+});
+
+ipcMain.handle('window:is-fullscreen', () => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  return win ? win.isFullScreen() : false;
+});
+
 ipcMain.handle('camera:list', async () => {
-  if (!nativeEngine) throw new Error('Native engine not loaded');
-  return nativeEngine.getCameras();
+  if (nativeEngine && nativeEngine.getCameras) return nativeEngine.getCameras();
+  return [];
 });
 
 ipcMain.handle('display:list', async () => {
-  if (!nativeEngine) throw new Error('Native engine not loaded');
-  return nativeEngine.getDisplays();
+  if (nativeEngine && nativeEngine.getDisplays) return nativeEngine.getDisplays();
+  try {
+    const displays = screen.getAllDisplays();
+    const primaryId = screen.getPrimaryDisplay().id;
+    return displays.map((d, index) => ({
+      id: d.id.toString(),
+      name: `Display ${index + 1} (${d.bounds.width}x${d.bounds.height})`,
+      width: d.bounds.width,
+      height: d.bounds.height,
+      isPrimary: d.id === primaryId
+    }));
+  } catch {
+    return [];
+  }
 });
 
 // Capture Router to share physical streams
 const activeCameras = new Map<string, Set<string>>(); // deviceId -> set of sourceIds
 const activeScreens = new Map<string, Set<string>>(); // displayId -> set of sourceIds
+const stopCameraTimeouts = new Map<string, NodeJS.Timeout>();
+const stopScreenTimeouts = new Map<string, NodeJS.Timeout>();
 
 ipcMain.handle('camera:start', async (event, deviceId: string, sourceId: string) => {
-  if (!nativeEngine) throw new Error('Native engine not loaded');
+  if (!nativeEngine) return false;
   
   if (stopCameraTimeouts.has(deviceId)) {
     clearTimeout(stopCameraTimeouts.get(deviceId)!);
@@ -132,8 +182,6 @@ ipcMain.handle('camera:start', async (event, deviceId: string, sourceId: string)
   return true;
 });
 
-const stopCameraTimeouts = new Map<string, NodeJS.Timeout>();
-
 ipcMain.handle('camera:stop', async (event, sourceId: string) => {
   if (!nativeEngine) return;
   // Find which camera this source belongs to
@@ -156,10 +204,8 @@ ipcMain.handle('camera:stop', async (event, sourceId: string) => {
   }
 });
 
-const stopScreenTimeouts = new Map<string, NodeJS.Timeout>();
-
 ipcMain.handle('display:start', async (event, displayId: string, sourceId: string) => {
-  if (!nativeEngine) throw new Error('Native engine not loaded');
+  if (!nativeEngine) return false;
   
   if (!activeScreens.has(displayId)) {
     activeScreens.set(displayId, new Set([sourceId]));
@@ -353,13 +399,13 @@ ipcMain.handle('image:read', async (event, filePath: string) => {
 // --- Audio IPC Handlers ---
 
 ipcMain.handle('audio:list-inputs', async () => {
-  if (!nativeEngine) throw new Error('Native engine not loaded');
-  return nativeEngine.getAudioInputDevices ? nativeEngine.getAudioInputDevices() : [];
+  if (nativeEngine && nativeEngine.getAudioInputDevices) return nativeEngine.getAudioInputDevices();
+  return [];
 });
 
 ipcMain.handle('audio:list-outputs', async () => {
-  if (!nativeEngine) throw new Error('Native engine not loaded');
-  return nativeEngine.getAudioOutputDevices ? nativeEngine.getAudioOutputDevices() : [];
+  if (nativeEngine && nativeEngine.getAudioOutputDevices) return nativeEngine.getAudioOutputDevices();
+  return [];
 });
 
 ipcMain.handle('audio:add-source', async (event, sourceId: string, deviceId: string, isDesktop: boolean) => {

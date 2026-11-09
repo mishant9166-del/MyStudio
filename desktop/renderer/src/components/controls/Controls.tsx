@@ -200,7 +200,15 @@ export const Controls = ({ onOpenSettings }: { onOpenSettings: () => void }) => 
           <button className="p-1 hover:bg-slate-100 hover:text-slate-600 rounded transition-colors" title="Mute Audio">
             <MicOff className="w-5 h-5" strokeWidth={1.5} />
           </button>
-          <button className="p-1 hover:bg-slate-100 hover:text-slate-600 rounded transition-colors" title="Fullscreen">
+          <button 
+            onClick={() => {
+              if (window.electronAPI?.toggleFullscreen) {
+                window.electronAPI.toggleFullscreen();
+              }
+            }}
+            className="p-1 hover:bg-slate-100 hover:text-slate-600 rounded transition-colors cursor-pointer" 
+            title="Toggle Fullscreen"
+          >
             <Maximize className="w-5 h-5" strokeWidth={2} />
           </button>
         </div>
