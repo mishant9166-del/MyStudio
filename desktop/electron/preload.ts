@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AudioDevice, AudioMeter } from '../../shared/types';
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  platform: process.platform,
   // Device Enumeration
   getCameras: () => ipcRenderer.invoke('camera:list'),
   getDisplays: () => ipcRenderer.invoke('display:list'),
@@ -88,4 +89,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listSnapshots: (folderPath: string, prefix: string) => ipcRenderer.invoke('app:list-snapshots', folderPath, prefix),
   deleteSnapshot: (filePath: string) => ipcRenderer.invoke('app:delete-snapshot', filePath),
   renameSnapshot: (oldPath: string, newName: string) => ipcRenderer.invoke('app:rename-snapshot', oldPath, newName),
+
+  // ----------------------------------------------------
+  // WINDOW STATE
+  // ----------------------------------------------------
+  toggleFullscreen: () => ipcRenderer.invoke('window:toggle-fullscreen'),
+  isFullScreen: () => ipcRenderer.invoke('window:is-fullscreen'),
+  onFullscreenChange: (callback: (isFullScreen: boolean) => void) => {
+    ipcRenderer.removeAllListeners('window:fullscreen-change');
+    ipcRenderer.on('window:fullscreen-change', (_event, isFullScreen) => callback(isFullScreen));
+  },
 });

@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "main": "dist/electron/main.js",
   "scripts": {
+    "start": "node run-electron.js .",
     "dev:renderer": "vite",
-    "dev:electron": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron .",
+    "dev:electron": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development node run-electron.js .",
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
     "build:renderer": "tsc -b && vite build",
     "build:electron": "tsc -p electron/tsconfig.json",

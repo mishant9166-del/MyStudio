@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 interface Props {
   onClose: () => void;
   initialMode?: 'login' | 'signup';
-  onSuccess?: (user: { name: string }) => void;
+  onSuccess?: (user: { name: string, email?: string, phone?: string, user_id?: string }) => void;
 }
 
 export const AuthModal: React.FC<Props> = ({ onClose, initialMode = 'signup', onSuccess }) => {
